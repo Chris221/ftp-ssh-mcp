@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveConfig, validateConfig } from "../src/config.mjs";
+import { configWarnings, resolveConfig, validateConfig } from "../src/config.mjs";
 
 const ftpOnly = { FTP_HOST: "h", FTP_USER: "u", FTP_PASSWORD: "p" };
 const sshOnly = { SSH_HOST: "h", SSH_USER: "u", SSH_PASSWORD: "p" };
@@ -90,6 +90,18 @@ describe("secret-inheritance rule", () => {
     });
     expect(cfg.ssh.password).toBe("");
     expect(cfg.ssh.privateKeyPath).toBe("");
+    expect(cfg.ssh.passphrase).toBe("");
+  });
+
+  it("inherits the shared key and passphrase when the ssh profile sets no user", () => {
+    const cfg = resolveConfig({
+      REMOTE_HOST: "h",
+      REMOTE_USER: "shared",
+      REMOTE_PRIVATE_KEY: "id_rsa_shared",
+      REMOTE_PASSPHRASE: "sharedphrase",
+    });
+    expect(cfg.ssh.privateKeyPath).toBe("id_rsa_shared");
+    expect(cfg.ssh.passphrase).toBe("sharedphrase");
   });
 
   it("still inherits non-secrets when the profile sets its own user", () => {
@@ -103,6 +115,40 @@ describe("secret-inheritance rule", () => {
     });
     expect(cfg.ftp.host).toBe("shared-host");
     expect(cfg.ftp.baseDir).toBe("/shared");
+  });
+});
+
+describe("db profile", () => {
+  it("inherits the shared password when the profile sets no user", () => {
+    const cfg = resolveConfig({
+      REMOTE_USER: "shared",
+      REMOTE_PASSWORD: "sekrit",
+      DB_NAME: "site_db",
+    });
+    expect(cfg.db.password).toBe("sekrit");
+  });
+
+  it("does NOT inherit the shared password when the profile sets its own user", () => {
+    const cfg = resolveConfig({
+      REMOTE_USER: "shared",
+      REMOTE_PASSWORD: "sekrit",
+      DB_USER: "dbuser",
+    });
+    expect(cfg.db.password).toBe("");
+  });
+
+  it("uses the profile's own password when it sets both user and password", () => {
+    const cfg = resolveConfig({
+      REMOTE_USER: "shared",
+      REMOTE_PASSWORD: "sekrit",
+      DB_USER: "dbuser",
+      DB_PASSWORD: "owndbpass",
+    });
+    expect(cfg.db.password).toBe("owndbpass");
+  });
+
+  it("is null when neither DB_USER nor DB_NAME is set", () => {
+    expect(resolveConfig({}).db).toBe(null);
   });
 });
 
@@ -190,5 +236,31 @@ describe("validateConfig", () => {
     expect(() => validateConfig(resolveConfig({ ...ftpOnly, FILE_TRANSPORT: "sftp" }))).toThrow(
       /SSH_HOST/
     );
+  });
+});
+
+describe("configWarnings", () => {
+  it("warns when DB_USER is set but no password resolves", () => {
+    const cfg = resolveConfig({ DB_USER: "dbuser", DB_NAME: "site_db" });
+    const warnings = configWarnings(cfg);
+    expect(warnings).toStrictEqual([
+      'DB_PASSWORD is not set. The mysql client will rely on host-side credentials ' +
+        "such as ~/.my.cnf (fine if the remote host is configured that way, otherwise " +
+        "connections will fail).",
+    ]);
+  });
+
+  it("does not warn when a password is set", () => {
+    const cfg = resolveConfig({ DB_USER: "dbuser", DB_PASSWORD: "own", DB_NAME: "site_db" });
+    expect(configWarnings(cfg)).toStrictEqual([]);
+  });
+
+  it("does not warn when db is null", () => {
+    expect(configWarnings(resolveConfig({}))).toStrictEqual([]);
+  });
+
+  it("does not warn when DB_USER is unset", () => {
+    const cfg = resolveConfig({ DB_NAME: "site_db" });
+    expect(configWarnings(cfg)).toStrictEqual([]);
   });
 });

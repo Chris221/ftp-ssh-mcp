@@ -157,3 +157,28 @@ export function validateConfig(config) {
     throw new Error(`Invalid FTP_SECURITY "${config.ftpSecurity}". Use one of: ${modes.join(", ")}.`);
   }
 }
+
+/**
+ * Non-fatal configuration observations, returned as plain strings.
+ *
+ * Pure: writes nothing, just returns warnings for the caller to print.
+ *
+ * A DB_USER with no resolvable password is not necessarily broken: mysql_query
+ * runs the mysql client on the remote host over SSH, and that host may supply
+ * credentials itself via ~/.my.cnf or a trusted local socket. Refusing to start
+ * over this would reject a configuration that works, so it is a warning rather
+ * than a validateConfig throw.
+ */
+export function configWarnings(config) {
+  const warnings = [];
+
+  if (config.db && config.db.user && !config.db.password) {
+    warnings.push(
+      "DB_PASSWORD is not set. The mysql client will rely on host-side credentials " +
+        "such as ~/.my.cnf (fine if the remote host is configured that way, otherwise " +
+        "connections will fail)."
+    );
+  }
+
+  return warnings;
+}
