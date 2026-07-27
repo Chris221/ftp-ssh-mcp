@@ -72,4 +72,24 @@ describe("loadEnvFile", () => {
     expect(loadEnvFile(env, dir)).toBe(path.join(dir, ".env"));
     expect(env.A).toBe("implicit");
   });
+
+  it("preserves values containing = characters unquoted", () => {
+    writeFileSync(
+      path.join(dir, ".env"),
+      "TOKEN=YWJjZGVmZw==\nURL=https://h/p?a=1&b=2\n"
+    );
+    const env = {};
+    loadEnvFile(env, dir);
+    expect(env).toStrictEqual({
+      TOKEN: "YWJjZGVmZw==",
+      URL: "https://h/p?a=1&b=2",
+    });
+  });
+
+  it("strips quotes from values containing = characters", () => {
+    writeFileSync(path.join(dir, ".env"), `Q="a=b=c"\n`);
+    const env = {};
+    loadEnvFile(env, dir);
+    expect(env).toStrictEqual({ Q: "a=b=c" });
+  });
 });
