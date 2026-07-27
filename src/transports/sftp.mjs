@@ -46,7 +46,17 @@ export async function withSftp(profile, fn) {
     );
   }
 
-  const sftp = new SftpClient();
+  // ssh2-sftp-client's DEFAULT global listeners call console.log on `end` and
+  // `close` (src/index.js). They are suppressed on a clean teardown, but not on
+  // any failure path — connection refused, host down, TCP reset, handshake
+  // timeout — so a failed connect writes a bare non-JSON line to stdout, which
+  // is the JSON-RPC channel. Supplying our own callbacks is the only way to
+  // stop that: errors go to stderr, end/close say nothing.
+  const sftp = new SftpClient("ftp-ssh-mcp", {
+    error: (err) => console.error(`sftp: ${err.message}`),
+    end: () => {},
+    close: () => {},
+  });
   // SFTP rides on SSH, so it takes the same auth as ssh_exec: a key, a password,
   // or both. An encrypted key is useless without its passphrase.
   const auth = {};
