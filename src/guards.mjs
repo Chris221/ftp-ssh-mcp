@@ -67,6 +67,9 @@ export function resolveRemotePath(input, baseDir = "") {
   }
   const joined = posix.normalize(posix.join(baseDir, cleaned));
   const fence = baseDir.endsWith("/") ? baseDir : `${baseDir}/`;
+  // This fence is unreachable in practice — the .. check above catches every
+  // input that could escape. Retained deliberately as a backstop should the
+  // earlier check ever be relaxed.
   if (joined !== baseDir && !joined.startsWith(fence)) {
     throw new Error("remotePath escapes the configured base directory.");
   }

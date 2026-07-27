@@ -205,6 +205,14 @@ describe("resolveRemotePath base fence", () => {
     );
   });
 
+  it("rejects .. segments with transport-neutral message", () => {
+    // The fence check is unreachable by design — the .. pre-check catches
+    // every escaping input. This test asserts the check that genuinely fires.
+    expect(() => resolveRemotePath("../outside", "/home/site/public_html")).toThrow(
+      /must not contain '\.\.' segments/
+    );
+  });
+
   it("does not mention FTP_BASE_DIR in errors", () => {
     // Verify the error message has been updated to be transport-neutral
     expect(() => resolveRemotePath("../outside", "/home/site/public_html")).not.toThrow(
