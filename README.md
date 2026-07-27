@@ -6,7 +6,7 @@
 [![node](https://img.shields.io/node/v/ftp-ssh-mcp.svg)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/ftp-ssh-mcp.svg)](./LICENSE)
 
-An MCP server for working with a single remote host over FTP, FTPS, SFTP, and SSH — the kind of host a typical shared-hosting or cPanel deployment gives you, not a cloud provider's API. It groups its tools into three capability classes: file transfer (list, upload, download, mkdir, delete), shell execution over SSH, and a MySQL query wrapper that also runs over SSH. File transfer is the only capability enabled by default — shell execution and database access are both opt-in and stay off until you explicitly turn them on.
+An MCP server for working with a single remote host over FTP, FTPS, SFTP, and SSH — the kind of host a typical shared-hosting or cPanel deployment gives you, not a cloud provider's API. It groups its tools into three capability classes: file transfer (list, upload, download, mkdir, delete), shell execution over SSH, and a MySQL query wrapper that also runs over SSH. File transfer is the only capability enabled by default — shell execution and database access are both opt-in and stay off until you explicitly turn them on. Treat those two as equally dangerous: `mysql_query` runs arbitrary SQL on a production database and can escape to a shell, so it is not the milder of the pair.
 
 ## Quickstart
 
@@ -49,9 +49,9 @@ A capability's tools are only registered when it is both configured (its require
 | --- | --- | --- |
 | `files` | `file_list`, `file_upload`, `file_upload_dir`, `file_download`, `file_mkdir`, `file_delete` | An FTP or SSH profile is configured. `file_delete` additionally requires `FTP_ALLOW_DELETE=true`; all writes require `FTP_READONLY` to be unset or `false`. |
 | `ssh` | `ssh_exec` | An SSH profile is configured with `SSH_BASE_DIR` set and `SSH_ALLOW_EXEC=true`. |
-| `mysql` | `mysql_query` | An SSH profile is configured, and `DB_USER` and `DB_NAME` are both set. `DB_PASSWORD` is not required — see below. |
+| `mysql` | `mysql_query` | An SSH profile is configured, and `DB_USER` and `DB_NAME` are both set. `DB_USER` must be set explicitly — it does not inherit `REMOTE_USER` — so the capability cannot switch itself on. Blocked entirely by `FTP_READONLY=true`. `DB_PASSWORD` is not required — see below. |
 
-The `files` tools are transport-neutral: they work over whichever transport `FILE_TRANSPORT` selects (`ftp` or `sftp`), and each call can override the transport for that one call if both profiles are configured. `mysql_query` is a convenience wrapper, not a database driver — it pipes SQL over SSH to the `mysql` client already installed on the host (`mysql --user=... --database=... --table`, with the SQL sent on stdin), then parses the CLI's table output. There is no connection pooling and no parameterised-query support. It exists because most shared hosts will not accept a database connection from outside the host itself; if you need a real client-side database integration, use one instead of `mysql_query`.
+The `files` tools are transport-neutral: they work over whichever transport `FILE_TRANSPORT` selects (`ftp` or `sftp`), and each call can override the transport for that one call if both profiles are configured. `mysql_query` is a convenience wrapper, not a database driver — it pipes SQL over SSH to the `mysql` client already installed on the host (`mysql --user=... --database=... --table`, with the SQL sent on stdin), then parses the CLI's table output. There is no connection pooling and no parameterised-query support. It exists because most shared hosts will not accept a database connection from outside the host itself; if you need a real client-side database integration, use one instead of `mysql_query`. **Enable it with the same caution as `ssh_exec`, not less** — see Security.
 
 ## Configuration
 
@@ -91,12 +91,12 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `SSH_TIMEOUT_MS` | `120000` | Connection and per-command timeout. |
 | `SSH_MAX_OUTPUT` | `100000` | Combined stdout+stderr byte cap per command; output beyond this is truncated, not buffered. |
 | `SSH_ALLOWED_CMDS` | `npm,node,mysql,mysqldump,touch,ls,cat,tail,head,df,du,pwd` | Comma-separated allowlist of program names `ssh_exec` may invoke. |
-| `DB_USER` | inherits `REMOTE_USER` | |
+| `DB_USER` | — | Must be set explicitly. Unlike other non-secrets it does **not** inherit `REMOTE_USER`, so `DB_NAME` alone cannot activate `mysql_query`. |
 | `DB_PASSWORD` | see secret inheritance | See below — not required. |
 | `DB_NAME` | — | Default database for `mysql_query`; can be overridden per call. |
 | `FILE_TRANSPORT` | `ftp` if an FTP profile is configured, else `sftp` if an SSH profile is configured, else `ftp` | Which profile serves the `files` tools. |
 | `MCP_CAPABILITIES` | all configured capabilities | Comma-separated allowlist restricting which capabilities register tools (`files`, `ssh`, `mysql`). An unrecognised name fails startup. |
-| `FTP_READONLY` | `false` | When `true`, blocks every write across both file transfer and `ssh_exec` (uploads, deletes, mkdir, and shell commands alike). |
+| `FTP_READONLY` | `false` | When `true`, blocks every write across file transfer, `ssh_exec` and `mysql_query` (uploads, deletes, mkdir, shell commands and SQL alike). |
 | `FTP_ALLOW_DELETE` | `false` | Must be `true` for `file_delete` to work. |
 | `SSH_ALLOW_EXEC` | `false` | Must be `true` for `ssh_exec` to be registered at all. |
 
@@ -115,7 +115,9 @@ A `DB_USER` with no resolvable `DB_PASSWORD` is not treated as an error: the rem
   ```
 
   and copy the `SHA256:…` field (a bare hex digest is also accepted). A fingerprint that cannot be parsed is a startup error rather than a silent fallback to "no verification".
-- `mysql_query` never builds a shell string from your SQL — the query is written to the `mysql` client's stdin, and the password is passed via the `MYSQL_PWD` environment variable rather than argv, so it does not appear in the host's process list.
+- `mysql_query` never builds a shell string from your SQL — the query is written to the `mysql` client's stdin, so it is never interpolated into a command line.
+- **`DB_PASSWORD` is briefly visible in the host's process list.** It is passed as a `MYSQL_PWD=…` shell environment assignment prefixed to the command, and that whole command is executed as one shell string, so the `mysql` client's own argv is clean but the wrapping shell's argv is not: any other user on that host can see the password in `ps aux` for the duration of the query. On shared hosting, assume they can. Using a mode-600 `--defaults-extra-file` on the host would avoid this and is a possible future change.
+- **`mysql_query` is at least as powerful as `ssh_exec`, not a lesser grant.** It runs arbitrary SQL against a production database, and the `mysql` client's `\!` command is a shell escape that is honoured on piped input — so `\! curl … | sh` reaches a shell regardless of `SSH_ALLOW_EXEC` and `SSH_ALLOWED_CMDS`. The two capabilities are separate switches because they are separate features, not because one is safer; enable `mysql` with the same care as `ssh`.
 
 None of this makes the remote host a sandbox. An allowed command still runs with the full privileges of whichever account is configured, and there is no isolation between what `ssh_exec` can do and what that account could do logged in directly. The guards constrain the *shape* of a single call — one program, no shell tricks, paths that stay inside a base directory — they do not constrain what an allowed program itself is capable of once it runs.
 

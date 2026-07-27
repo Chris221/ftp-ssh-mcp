@@ -92,7 +92,13 @@ function resolveSsh(env) {
 
 function resolveDb(env) {
   const r = reader(env, "DB");
-  const user = r.open("USER");
+  // DB_USER deliberately does NOT inherit REMOTE_USER, unlike every other
+  // non-secret. mysql_query is at least as powerful as ssh_exec (arbitrary SQL
+  // on a production database, plus a shell escape via the client's `\!`), and
+  // ssh_exec requires an explicit SSH_ALLOW_EXEC. Inheriting the shared user
+  // would let the capability switch itself on from DB_NAME alone, with no
+  // equivalent opt-in anywhere. DB_PASSWORD keeps the normal secret rules.
+  const user = env.DB_USER || "";
   const name = env.DB_NAME || "";
   if (!user && !name) return null;
   return { user, password: r.secret("PASSWORD"), name };

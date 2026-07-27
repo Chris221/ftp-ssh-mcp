@@ -262,6 +262,19 @@ describe("db profile", () => {
   it("is null when neither DB_USER nor DB_NAME is set", () => {
     expect(resolveConfig({}).db).toBe(null);
   });
+
+  // mysql_query is at least as powerful as ssh_exec, which requires an explicit
+  // SSH_ALLOW_EXEC. If DB_USER inherited REMOTE_USER, DB_NAME alone would
+  // activate the capability and there would be no equivalent opt-in anywhere.
+  it("does NOT inherit REMOTE_USER for DB_USER", () => {
+    const cfg = resolveConfig({ REMOTE_USER: "shared", REMOTE_PASSWORD: "sekrit", DB_NAME: "site_db" });
+    expect(cfg.db.user).toBe("");
+  });
+
+  it("uses DB_USER when it is set explicitly", () => {
+    const cfg = resolveConfig({ REMOTE_USER: "shared", DB_USER: "dbuser", DB_NAME: "site_db" });
+    expect(cfg.db.user).toBe("dbuser");
+  });
 });
 
 describe("file transport selection", () => {

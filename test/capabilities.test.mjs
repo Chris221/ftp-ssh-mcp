@@ -47,6 +47,18 @@ describe("capability selection", () => {
     expect(names({ ...sshOnly, ...db })).toContain("mysql");
   });
 
+  // ...but it does require DB_USER to be named explicitly. mysql_query is at
+  // least as powerful as ssh_exec (arbitrary SQL, plus the mysql client's `\!`
+  // shell escape), and ssh_exec cannot switch itself on either.
+  it("does NOT add mysql when only DB_NAME is set", () => {
+    expect(names({ ...sshOnly, DB_NAME: "dbn" })).toStrictEqual(["files"]);
+  });
+
+  it("does NOT add mysql when DB_NAME is set and only REMOTE_USER supplies a user", () => {
+    const env = { REMOTE_HOST: "h", REMOTE_USER: "u", REMOTE_PASSWORD: "p", DB_NAME: "dbn" };
+    expect(names(env)).toStrictEqual(["files"]);
+  });
+
   it("honours MCP_CAPABILITIES as an allowlist", () => {
     const env = { ...sshOnly, ...db, SSH_ALLOW_EXEC: "true", SSH_BASE_DIR: "/home/u" };
     expect(names({ ...env, MCP_CAPABILITIES: "files" })).toStrictEqual(["files"]);
@@ -159,6 +171,35 @@ describe("safety clamps", () => {
     const { run } = buildTools(config);
     const result = await run("ssh_exec", { command: "ls" });
     expect(result.error).toMatch(/read-only/i);
+  });
+
+  // A server that refuses `touch` but happily runs DROP TABLE is not read-only.
+  // mysql_query used to be exempt from this clamp entirely.
+  it("blocks mysql_query when FTP_READONLY=true", async () => {
+    const config = resolveConfig({
+      ...sshOnly,
+      ...db,
+      SSH_BASE_DIR: "/home/u",
+      FTP_READONLY: "true",
+    });
+    const { run } = buildTools(config);
+    const result = await run("mysql_query", { sql: "DROP TABLE users" });
+
+    expect(result.error).toMatch(/read-only/i);
+    // The clamp fires before anything is sent: sshRun is mocked in this file,
+    // so "never called" is the proof nothing reached the host.
+    expect(sshRun).not.toHaveBeenCalled();
+  });
+
+  it("uses the same read-only message for mysql_query as for ssh_exec", async () => {
+    const env = { ...sshOnly, ...db, SSH_BASE_DIR: "/home/u", FTP_READONLY: "true" };
+    const { run } = buildTools(resolveConfig({ ...env, SSH_ALLOW_EXEC: "true" }));
+
+    const sql = await run("mysql_query", { sql: "SELECT 1" });
+    const exec = await run("ssh_exec", { command: "ls" });
+
+    expect(sql.error).toBe("Server is in read-only mode (FTP_READONLY=true).");
+    expect(exec.error).toBe(sql.error);
   });
 
   it("does not block reads (file_list, file_download) on a read-only server", async () => {
