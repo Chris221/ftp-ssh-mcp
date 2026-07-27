@@ -16,8 +16,14 @@ export function ftpAdapter(client) {
       // resolves its basename against whatever directory this call left behind.
       if (dir && dir !== "." && dir !== "/") {
         const cwd = await client.pwd();
-        await client.ensureDir(dir);
-        await client.cd(cwd);
+        try {
+          await client.ensureDir(dir);
+        } finally {
+          // Restore even when ensureDir throws — it may already have moved the
+          // session. Swallow a failed restore so it cannot mask the real error;
+          // if the connection is that broken, the next operation reports it.
+          await client.cd(cwd).catch(() => {});
+        }
       }
       await client.uploadFrom(local, remote);
     },
