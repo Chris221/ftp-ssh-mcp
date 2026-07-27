@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     mockReset: true,
+    setupFiles: ["./test/setup.mjs"],
     coverage: {
       provider: "v8",
       include: ["src/**/*.mjs"],
