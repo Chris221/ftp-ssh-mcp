@@ -118,6 +118,68 @@ describe("secret-inheritance rule", () => {
   });
 });
 
+// SSH_HOST_FINGERPRINT is a PUBLIC value — it is what you would paste into a
+// chat message to ask "is this the right host?" — so it must resolve through
+// open(), inheriting REMOTE_HOST_FINGERPRINT even for a profile that names its
+// own user. Routing it through secret() would silently drop the pin in exactly
+// the multi-account cPanel setup the secret rule exists for, and dropping a pin
+// means connecting to an unverified host.
+describe("ssh host fingerprint", () => {
+  const FINGERPRINT = "SHA256:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+
+  it("resolves SSH_HOST_FINGERPRINT", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_HOST_FINGERPRINT: FINGERPRINT });
+    expect(cfg.ssh.hostFingerprint).toBe(FINGERPRINT);
+  });
+
+  it("inherits REMOTE_HOST_FINGERPRINT", () => {
+    const cfg = resolveConfig({ ...sshOnly, REMOTE_HOST_FINGERPRINT: FINGERPRINT });
+    expect(cfg.ssh.hostFingerprint).toBe(FINGERPRINT);
+  });
+
+  it("inherits the shared fingerprint even when the profile sets its own user", () => {
+    const cfg = resolveConfig({
+      REMOTE_HOST: "h",
+      REMOTE_USER: "shared",
+      REMOTE_HOST_FINGERPRINT: FINGERPRINT,
+      SSH_USER: "cpanel",
+      SSH_PASSWORD: "own",
+    });
+    expect(cfg.ssh.hostFingerprint).toBe(FINGERPRINT);
+    // The secret rule still applies to the secret next door, unchanged.
+    expect(cfg.ssh.password).toBe("own");
+  });
+
+  it("prefers the profile value over the shared one", () => {
+    const cfg = resolveConfig({
+      ...sshOnly,
+      REMOTE_HOST_FINGERPRINT: "SHA256:ZmFrZS1zaGFyZWQtZmluZ2VycHJpbnQtdmFsdWUtMDAwMDA",
+      SSH_HOST_FINGERPRINT: FINGERPRINT,
+    });
+    expect(cfg.ssh.hostFingerprint).toBe(FINGERPRINT);
+  });
+
+  it("is '' when unset", () => {
+    expect(resolveConfig(sshOnly).ssh.hostFingerprint).toBe("");
+  });
+
+  it("is accepted by validateConfig in both renderings", () => {
+    const hex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    expect(() =>
+      validateConfig(resolveConfig({ ...sshOnly, SSH_HOST_FINGERPRINT: FINGERPRINT }))
+    ).not.toThrow();
+    expect(() =>
+      validateConfig(resolveConfig({ ...sshOnly, SSH_HOST_FINGERPRINT: hex }))
+    ).not.toThrow();
+  });
+
+  it("is rejected by validateConfig when it cannot be parsed", () => {
+    expect(() =>
+      validateConfig(resolveConfig({ ...sshOnly, SSH_HOST_FINGERPRINT: "sha256:oops" }))
+    ).toThrow(/SSH_HOST_FINGERPRINT/);
+  });
+});
+
 describe("db profile", () => {
   it("inherits the shared password when the profile sets no user", () => {
     const cfg = resolveConfig({
@@ -240,6 +302,29 @@ describe("validateConfig", () => {
 });
 
 describe("configWarnings", () => {
+  const HOST_KEY_WARNING =
+    "SSH_HOST_FINGERPRINT is not set, so the host key is accepted without verification " +
+    "and a machine on the path could impersonate the host. Pin it with the output of " +
+    '"ssh-keyscan -t rsa <host> | ssh-keygen -lf -".';
+
+  it("warns when an SSH profile has no pinned host key", () => {
+    expect(configWarnings(resolveConfig(sshOnly))).toStrictEqual([HOST_KEY_WARNING]);
+  });
+
+  it("does not warn about the host key once a fingerprint is pinned", () => {
+    const cfg = resolveConfig({
+      ...sshOnly,
+      SSH_HOST_FINGERPRINT: "SHA256:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    });
+    expect(configWarnings(cfg)).toStrictEqual([]);
+  });
+
+  it("does not warn about the host key for an ftp-only config", () => {
+    // No SSH profile means no SSH handshake to verify — the warning would be
+    // noise, and noise is what makes real warnings get ignored.
+    expect(configWarnings(resolveConfig(ftpOnly))).toStrictEqual([]);
+  });
+
   it("warns when DB_USER is set but no password resolves", () => {
     const cfg = resolveConfig({ DB_USER: "dbuser", DB_NAME: "site_db" });
     const warnings = configWarnings(cfg);

@@ -3,9 +3,10 @@
 // Every command is assembled from configuration, never from caller input — the
 // command itself has already been checked against the allowlist by the caller.
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-import { buildRemoteCommand } from "./guards.mjs";
+import { buildRemoteCommand, formatFingerprint, normalizeFingerprint } from "./guards.mjs";
 
 export function assertSshUsable(profile) {
   if (!profile) throw new Error("No SSH profile configured. Set SSH_HOST (or REMOTE_HOST).");
@@ -34,6 +35,12 @@ export function assertSshUsable(profile) {
  * A key and a password are not mutually exclusive: some hosts require both, in
  * sequence. When both are configured, `authHandler` lists the methods to walk so
  * the server can ask for a second factor after the first succeeds.
+ *
+ * Returns `{ options, hostKeyError }`. ssh2's hostVerifier can only answer
+ * yes/no — a rejection surfaces as its generic "Host denied (verification
+ * failed)" — so the detailed "expected X, received Y" has to be carried out of
+ * the closure. Call `hostKeyError()` on a connect failure and prefer its result
+ * over ssh2's own error when it is non-null.
  */
 export async function buildAuthOptions(profile) {
   const options = {
@@ -55,7 +62,29 @@ export async function buildAuthOptions(profile) {
   if (options.privateKey && options.password) {
     options.authHandler = ["publickey", "password", "keyboard-interactive"];
   }
-  return options;
+
+  // Without a hostVerifier ssh2 accepts ANY host key, so a machine on the path
+  // gets handed the account's password. Pinning a fingerprint is opt-in
+  // (configWarnings says so when it is missing), but when set it is enforced on
+  // both transports, because they both come through here.
+  let mismatch = null;
+  const expected = normalizeFingerprint(profile.hostFingerprint);
+  if (expected) {
+    options.hostVerifier = (key) => {
+      // `key` is the raw public-key blob, which is what ssh-keygen -lf hashes,
+      // so this digest is comparable with what SSH_HOST_FINGERPRINT holds.
+      const actual = createHash("sha256").update(key).digest("hex");
+      if (actual === expected) return true;
+      mismatch = new Error(
+        `Host key verification failed for ${profile.host}: expected ` +
+          `${formatFingerprint(expected)}, received ${formatFingerprint(actual)}. ` +
+          "Update SSH_HOST_FINGERPRINT only if you know the host key legitimately changed."
+      );
+      return false;
+    };
+  }
+
+  return { options, hostKeyError: () => mismatch };
 }
 
 /**
@@ -78,12 +107,17 @@ export async function withSsh(profile, fn) {
     throw new Error("SSH requires the 'ssh2' package. Run: npm install ssh2");
   });
 
-  const options = await buildAuthOptions(profile);
+  const { options, hostKeyError } = await buildAuthOptions(profile);
   const conn = new Client();
   try {
     await new Promise((resolve, reject) => {
       attachKeyboardInteractive(conn, profile);
-      conn.on("ready", resolve).on("error", reject).connect(options);
+      conn
+        .on("ready", resolve)
+        // A host-key mismatch reaches ssh2 as a generic handshake failure;
+        // swap in the message that names the two fingerprints.
+        .on("error", (err) => reject(hostKeyError() || err))
+        .connect(options);
     });
     return await fn(conn);
   } finally {

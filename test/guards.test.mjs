@@ -4,6 +4,8 @@ import path from 'node:path';
 import {
   buildRemoteCommand,
   expandHome,
+  formatFingerprint,
+  normalizeFingerprint,
   quoteRemotePath,
   resolveRemotePath,
   shellQuote,
@@ -218,5 +220,63 @@ describe("resolveRemotePath base fence", () => {
     expect(() => resolveRemotePath("../outside", "/home/site/public_html")).not.toThrow(
       /FTP_BASE_DIR/
     );
+  });
+});
+
+// SSH_HOST_FINGERPRINT is compared against a digest of the offered host key, so
+// everything the user might paste has to reduce to the same canonical form. The
+// two renderings that matter are what `ssh-keygen -lf -` prints (SHA256:base64)
+// and the hex digest other tools show.
+describe("normalizeFingerprint", () => {
+  // 32 bytes: 0x00..0x1f. Chosen so the hex and base64 renderings of the SAME
+  // value can both be written out literally and checked against each other.
+  const HEX = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+  const BASE64 = Buffer.from(HEX, "hex").toString("base64").replace(/=+$/, "");
+
+  it("accepts the SHA256:<base64> rendering ssh-keygen prints", () => {
+    expect(normalizeFingerprint(`SHA256:${BASE64}`)).toBe(HEX);
+  });
+
+  it("accepts bare base64 without the SHA256: prefix", () => {
+    expect(normalizeFingerprint(BASE64)).toBe(HEX);
+  });
+
+  it("accepts base64 with padding", () => {
+    expect(normalizeFingerprint(`SHA256:${Buffer.from(HEX, "hex").toString("base64")}`)).toBe(HEX);
+  });
+
+  it("accepts a bare hex digest, case-insensitively", () => {
+    expect(normalizeFingerprint(HEX.toUpperCase())).toBe(HEX);
+  });
+
+  it("accepts colon-separated hex", () => {
+    const colons = HEX.match(/../g).join(":");
+    expect(normalizeFingerprint(colons)).toBe(HEX);
+  });
+
+  it("ignores surrounding whitespace and a lowercase prefix", () => {
+    expect(normalizeFingerprint(`  sha256:${BASE64}  `)).toBe(HEX);
+  });
+
+  it("returns '' for an unset value", () => {
+    expect(normalizeFingerprint("")).toBe("");
+    expect(normalizeFingerprint(undefined)).toBe("");
+    expect(normalizeFingerprint(null)).toBe("");
+  });
+
+  it("returns '' rather than guessing when the value is not a SHA-256 digest", () => {
+    // Each of these is a plausible mistake: an MD5 fingerprint, a truncated
+    // digest, the whole ssh-keygen line, and free text. None may be treated as
+    // a usable pin, because the caller turns "" into a hard configuration
+    // error instead of connecting unverified.
+    expect(normalizeFingerprint("d0:41:1e:f7:36:2f:31:0e:1c:5a:cd:12:2a:31:d1:eb")).toBe("");
+    expect(normalizeFingerprint(HEX.slice(0, 40))).toBe("");
+    expect(normalizeFingerprint(`2048 SHA256:${BASE64} host (RSA)`)).toBe("");
+    expect(normalizeFingerprint("not-a-fingerprint")).toBe("");
+  });
+
+  it("round-trips through formatFingerprint into the ssh-keygen rendering", () => {
+    expect(formatFingerprint(HEX)).toBe(`SHA256:${BASE64}`);
+    expect(normalizeFingerprint(formatFingerprint(HEX))).toBe(HEX);
   });
 });

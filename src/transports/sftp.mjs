@@ -64,10 +64,16 @@ export async function withSftp(profile, fn) {
   // for why this must not be hand-rolled here again. `sftp.client` is the
   // underlying ssh2 Client, and the keyboard-interactive listener has to be on
   // it before connect() or the prompt goes unanswered.
-  const options = await buildAuthOptions(profile);
+  const { options, hostKeyError } = await buildAuthOptions(profile);
   attachKeyboardInteractive(sftp.client, profile);
 
-  await sftp.connect(options);
+  try {
+    await sftp.connect(options);
+  } catch (err) {
+    // A host-key mismatch arrives as a generic handshake failure; swap in the
+    // message that names the expected and received fingerprints.
+    throw hostKeyError() || err;
+  }
   try {
     return await fn(sftpAdapter(sftp));
   } finally {

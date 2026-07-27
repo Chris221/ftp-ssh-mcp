@@ -5,7 +5,7 @@
 
 import path from "node:path";
 
-import { expandHome } from "./guards.mjs";
+import { expandHome, normalizeFingerprint } from "./guards.mjs";
 
 const posix = path.posix;
 
@@ -73,6 +73,11 @@ function resolveSsh(env) {
     password: r.secret("PASSWORD"),
     privateKeyPath: expandHome(r.secret("PRIVATE_KEY")),
     passphrase: r.secret("PASSPHRASE"),
+    // A host key fingerprint is a public value — it is what you would paste
+    // into a chat message to ask "is this the right host?" — so it inherits
+    // through open(), not secret(). Kept in its configured rendering here;
+    // normalizeFingerprint (guards.mjs) is the single place that parses it.
+    hostFingerprint: r.open("HOST_FINGERPRINT").trim(),
     baseDir: normalizeBase(r.open("BASE_DIR")),
     activate: env.SSH_ACTIVATE || "",
     allowExec: flag(env.SSH_ALLOW_EXEC),
@@ -141,6 +146,17 @@ export function validateConfig(config) {
     }
   }
 
+  // A fingerprint that does not parse must not be treated as "unset": the user
+  // asked for pinning, and silently connecting to an unverified host instead is
+  // exactly the outcome the setting exists to prevent.
+  if (config.ssh && config.ssh.hostFingerprint && !normalizeFingerprint(config.ssh.hostFingerprint)) {
+    throw new Error(
+      `SSH_HOST_FINGERPRINT is not a SHA-256 fingerprint: "${config.ssh.hostFingerprint}". ` +
+        'Use the "SHA256:<base64>" form printed by ' +
+        '"ssh-keyscan -t rsa <host> | ssh-keygen -lf -", or a 64-character hex digest.'
+    );
+  }
+
   const { transport } = config.files;
   if (transport !== "ftp" && transport !== "sftp") {
     throw new Error(`Invalid FILE_TRANSPORT "${transport}". Use "ftp" or "sftp".`);
@@ -171,6 +187,17 @@ export function validateConfig(config) {
  */
 export function configWarnings(config) {
   const warnings = [];
+
+  // ssh2 accepts any host key unless a hostVerifier is supplied, so without a
+  // pinned fingerprint the SSH side is strictly less careful than the FTPS side
+  // (which rejects an unverifiable certificate by default). Say so out loud.
+  if (config.ssh && !config.ssh.hostFingerprint) {
+    warnings.push(
+      "SSH_HOST_FINGERPRINT is not set, so the host key is accepted without verification " +
+        "and a machine on the path could impersonate the host. Pin it with the output of " +
+        '"ssh-keyscan -t rsa <host> | ssh-keygen -lf -".'
+    );
+  }
 
   if (config.db && config.db.user && !config.db.password) {
     warnings.push(

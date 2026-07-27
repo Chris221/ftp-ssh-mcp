@@ -85,6 +85,7 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `SSH_PASSWORD` | see secret inheritance | Password auth. Can be combined with a key; the server will try both. |
 | `SSH_PRIVATE_KEY` | see secret inheritance | Local path to a private key. A leading `~` is expanded. |
 | `SSH_PASSPHRASE` | see secret inheritance | Passphrase for `SSH_PRIVATE_KEY`. |
+| `SSH_HOST_FINGERPRINT` | inherits `REMOTE_HOST_FINGERPRINT` | SHA-256 host key fingerprint to pin. Accepts the `SHA256:<base64>` form or a bare hex digest. Not a secret, so it inherits freely. Unset means any host key is accepted, and the server warns at startup. See Security below. |
 | `SSH_BASE_DIR` | inherits `REMOTE_BASE_DIR` | Required for `ssh_exec` and `mysql_query`, which both need a known working directory. |
 | `SSH_ACTIVATE` | — | Remote path to a script (e.g. a Node virtualenv's `activate`) sourced before every command. Missing file is non-fatal — the command still runs. |
 | `SSH_TIMEOUT_MS` | `120000` | Connection and per-command timeout. |
@@ -107,6 +108,13 @@ A `DB_USER` with no resolvable `DB_PASSWORD` is not treated as an error: the rem
 - Before that check, the command is rejected outright if it contains any of a fourteen-character shell metacharacter class (`; & | ` `$` `(` `)` `{` `}` `<` `>` `\` and newline/carriage return), so a call can only ever be a single plain invocation — no chaining, redirection, or substitution.
 - Remote paths passed to the `files` tools and to `SSH_BASE_DIR`/`FTP_BASE_DIR` are resolved and confined to the profile's configured base directory; `..` segments are rejected outright.
 - Deletes (`FTP_ALLOW_DELETE`) and shell execution (`SSH_ALLOW_EXEC`) are both off by default and must be turned on explicitly.
+- **Pin the SSH host key with `SSH_HOST_FINGERPRINT`.** Unless it is set, the SSH and SFTP connections accept whatever host key they are offered — there is no `known_hosts` to fall back on — so anything on the network path can present its own key and be handed the account's password. When the variable is set, a mismatched key aborts the connection with an error naming both the expected and the received fingerprint; when it is unset, the server says so in a startup warning on stderr. Get the value from the host you trust with:
+
+  ```bash
+  ssh-keyscan -t rsa your-host.example.com | ssh-keygen -lf -
+  ```
+
+  and copy the `SHA256:…` field (a bare hex digest is also accepted). A fingerprint that cannot be parsed is a startup error rather than a silent fallback to "no verification".
 - `mysql_query` never builds a shell string from your SQL — the query is written to the `mysql` client's stdin, and the password is passed via the `MYSQL_PWD` environment variable rather than argv, so it does not appear in the host's process list.
 
 None of this makes the remote host a sandbox. An allowed command still runs with the full privileges of whichever account is configured, and there is no isolation between what `ssh_exec` can do and what that account could do logged in directly. The guards constrain the *shape* of a single call — one program, no shell tricks, paths that stay inside a base directory — they do not constrain what an allowed program itself is capable of once it runs.

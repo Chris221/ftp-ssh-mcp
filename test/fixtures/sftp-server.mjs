@@ -57,7 +57,7 @@ export async function startSftpServer({
   // `hostKey` is exposed because it is generated fresh per run: a test that
   // needs the expected SSH_HOST_FINGERPRINT computes it from this rather than
   // from a committed key.
-  const fixture = { port, hostKey, execCommands: [], onExec: null };
+  const fixture = { port, hostKey, execCommands: [], serverErrors: [], onExec: null };
 
   // Map a client path onto the temp root, refusing anything that escapes it.
   const localPath = (given) => {
@@ -72,6 +72,13 @@ export async function startSftpServer({
 
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
     client
+      // A client that rejects our host key, or drops mid-handshake, makes the
+      // server emit an error. Without a listener that becomes an uncaught
+      // exception and fails the whole test file, even though refusing to
+      // connect is exactly what the test asked for. Record it instead.
+      .on("error", (err) => {
+        fixture.serverErrors.push(err);
+      })
       .on("authentication", (ctx) => {
         if (ctx.username !== user) return ctx.reject();
 

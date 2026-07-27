@@ -25,6 +25,38 @@ export function expandHome(filePath) {
   return str;
 }
 
+/**
+ * Normalise a SHA-256 host-key fingerprint to lowercase hex.
+ *
+ * Accepts the two renderings a user actually has to hand:
+ *   - `SHA256:<base64>` — what `ssh-keyscan -t rsa host | ssh-keygen -lf -`
+ *     prints, with or without base64 padding.
+ *   - a 64-character hex digest, with or without `:` separators, any case.
+ *
+ * Returns "" for anything else. That makes an unusable value distinguishable
+ * from an unset one, so a typo can be reported rather than silently degrading
+ * to "no verification" — the failure mode pinning exists to prevent.
+ */
+export function normalizeFingerprint(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+
+  const body = value.replace(/^sha256:/i, "");
+  const hex = body.replace(/:/g, "");
+  if (/^[0-9a-f]{64}$/i.test(hex)) return hex.toLowerCase();
+
+  if (/^[A-Za-z0-9+/]+={0,2}$/.test(body)) {
+    const decoded = Buffer.from(body, "base64");
+    if (decoded.length === 32) return decoded.toString("hex");
+  }
+  return "";
+}
+
+/** Render a normalized (hex) fingerprint the way ssh-keygen prints it. */
+export function formatFingerprint(hex) {
+  return `SHA256:${Buffer.from(hex, "hex").toString("base64").replace(/=+$/, "")}`;
+}
+
 /** Single-quote a value for POSIX sh, neutralising any embedded quote. */
 export function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
