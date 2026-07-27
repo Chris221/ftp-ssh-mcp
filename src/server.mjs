@@ -2,6 +2,8 @@
 //
 // stdout is the JSON-RPC channel, so every diagnostic goes to stderr.
 
+import { createRequire } from "node:module";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
@@ -10,7 +12,14 @@ import { loadEnvFile } from "./env-file.mjs";
 import { selectCapabilities, unknownCapabilities } from "./capabilities/index.mjs";
 import { withClient } from "./transports/index.mjs";
 
-const VERSION = "1.0.0";
+// Read from package.json rather than written out here. A hardcoded copy is a
+// third version string that `npm version` does not touch and that
+// test/manifest.test.mjs (which pins server.json to package.json) did not know
+// about — it already said 1.0.0 while the manifests said 0.0.0, so MCP's
+// serverInfo.version and the --selftest banner would have been wrong from the
+// first release onward. createRequire because JSON import attributes are still
+// awkward across the supported Node range.
+export const VERSION = createRequire(import.meta.url)("../package.json").version;
 
 function text(body) {
   return { content: [{ type: "text", text: body }] };

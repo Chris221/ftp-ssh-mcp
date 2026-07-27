@@ -11,6 +11,27 @@ import path from "node:path";
 
 const ASSIGNMENT = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
 
+// Both quotes must be the SAME character. The obvious /^["'](.*)["']$/ does not
+// require that, so `PASSWORD="hunter2'` silently became hunter2 — a wrong
+// secret on every connect, which on cPanel means repeated auth failures and
+// eventually a cPHulk lockout. Quoting is also the only way to keep leading or
+// trailing spaces in a value, so a quoted value must not be trimmed inside.
+const QUOTED = /^(["'])([\s\S]*)\1$/;
+
+/**
+ * Resolve one raw right-hand side.
+ *
+ * Unquoted values are trimmed (the common case: `KEY=value` with stray spaces).
+ * A correctly quoted value keeps its interior verbatim. Anything that only
+ * looks quoted — mismatched or unterminated — is left exactly as written rather
+ * than being half-stripped, so a surprising value is visible instead of silent.
+ */
+function parseValue(rawValue) {
+  const trimmed = rawValue.trim();
+  const quoted = QUOTED.exec(trimmed);
+  return quoted ? quoted[2] : trimmed;
+}
+
 /**
  * Populate `env` from the first readable candidate file.
  *
@@ -35,7 +56,7 @@ export function loadEnvFile(env = process.env, cwd = process.cwd()) {
       if (!match) continue;
       const [, key, rawValue] = match;
       if (env[key]) continue;
-      env[key] = rawValue.trim().replace(/^["'](.*)["']$/, "$1");
+      env[key] = parseValue(rawValue);
     }
     return file;
   }

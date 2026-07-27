@@ -93,3 +93,59 @@ describe("loadEnvFile", () => {
     expect(env).toStrictEqual({ Q: "a=b=c" });
   });
 });
+
+// A password is the value most likely to contain a quote or significant
+// whitespace, and the one where quietly changing it costs the most: the wrong
+// secret goes out on every connect, and on cPanel enough failures trip cPHulk
+// and lock the account out at the host level. So the parser must either return
+// the value exactly or leave it visibly untouched — never half-strip it.
+describe("loadEnvFile quoting", () => {
+  const load = (contents) => {
+    writeFileSync(path.join(dir, ".env"), contents);
+    const env = {};
+    loadEnvFile(env, dir);
+    return env;
+  };
+
+  it("strips matching double quotes", () => {
+    expect(load(`A="hunter2"\n`)).toStrictEqual({ A: "hunter2" });
+  });
+
+  it("strips matching single quotes", () => {
+    expect(load(`A='hunter2'\n`)).toStrictEqual({ A: "hunter2" });
+  });
+
+  it("leaves mismatched quotes intact rather than stripping them", () => {
+    // The regression: /^["'](.*)["']$/ accepted these and returned `foo`,
+    // silently turning a password of `"foo'` into a different password.
+    expect(load(`A="foo'\n`)).toStrictEqual({ A: `"foo'` });
+    expect(load(`B='foo"\n`)).toStrictEqual({ B: `'foo"` });
+  });
+
+  it("leaves an unterminated quote intact", () => {
+    expect(load(`A="foo\n`)).toStrictEqual({ A: `"foo` });
+    expect(load(`B=foo"\n`)).toStrictEqual({ B: `foo"` });
+  });
+
+  it("preserves leading and trailing spaces inside quotes", () => {
+    expect(load(`A="  spaced  "\n`)).toStrictEqual({ A: "  spaced  " });
+    expect(load(`B='\tpadded\t'\n`)).toStrictEqual({ B: "\tpadded\t" });
+  });
+
+  it("still trims an unquoted value", () => {
+    expect(load("A=  spaced  \n")).toStrictEqual({ A: "spaced" });
+  });
+
+  it("keeps quote characters that are inside the value", () => {
+    expect(load(`A="say \\"hi\\""\n`)).toStrictEqual({ A: `say \\"hi\\"` });
+    expect(load(`B=it's-fine\n`)).toStrictEqual({ B: "it's-fine" });
+  });
+
+  it("treats a lone quote character as the value", () => {
+    expect(load(`A="\n`)).toStrictEqual({ A: `"` });
+  });
+
+  it("resolves empty quotes to an empty string", () => {
+    expect(load(`A=""\n`)).toStrictEqual({ A: "" });
+  });
+});
