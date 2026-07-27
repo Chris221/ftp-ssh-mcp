@@ -1,0 +1,53 @@
+// basic-ftp adapter. Normalized to the shape in ./index.mjs.
+import path from "node:path";
+
+const posix = path.posix;
+
+export function ftpAdapter(client) {
+  return {
+    async list(remote) {
+      const entries = await client.list(remote);
+      return entries.map((f) => ({ name: f.name, isDir: f.isDirectory, size: f.size }));
+    },
+    async upload(local, remote) {
+      const dir = posix.dirname(remote);
+      if (dir && dir !== "." && dir !== "/") await client.ensureDir(dir);
+      await client.uploadFrom(local, posix.basename(remote));
+    },
+    async uploadDir(local, remote) {
+      await client.uploadFromDir(local, remote);
+    },
+    async download(remote, local) {
+      await client.downloadTo(local, remote);
+    },
+    async mkdir(remote) {
+      await client.ensureDir(remote);
+    },
+    async removeFile(remote) {
+      await client.remove(remote);
+    },
+    async removeDir(remote) {
+      await client.removeDir(remote);
+    },
+  };
+}
+
+/** Open an FTP/FTPS connection, run `fn`, always close. */
+export async function withFtp(profile, fn) {
+  const ftp = await import("basic-ftp");
+  const client = new ftp.Client(profile.timeout);
+  client.ftp.verbose = false;
+  try {
+    await client.access({
+      host: profile.host,
+      port: profile.port,
+      user: profile.user,
+      password: profile.password,
+      secure: profile.secure,
+      secureOptions: { rejectUnauthorized: profile.tlsRejectUnauthorized },
+    });
+    return await fn(ftpAdapter(client));
+  } finally {
+    client.close();
+  }
+}
