@@ -1,0 +1,15 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.Chris221/ftp-ssh-mcp",
+  "description": "Work with a remote host over FTP/FTPS/SFTP, SSH, and MySQL.",
+  "repository": { "url": "https://github.com/Chris221/ftp-ssh-mcp", "source": "github" },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "ftp-ssh-mcp",
+      "version": "1.0.0",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}
