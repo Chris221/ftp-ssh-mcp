@@ -11,8 +11,15 @@ export function ftpAdapter(client) {
     },
     async upload(local, remote) {
       const dir = posix.dirname(remote);
-      if (dir && dir !== "." && dir !== "/") await client.ensureDir(dir);
-      await client.uploadFrom(local, posix.basename(remote));
+      // ensureDir also changes the working directory, so capture and restore it
+      // and upload by full path — otherwise a later upload in the same session
+      // resolves its basename against whatever directory this call left behind.
+      if (dir && dir !== "." && dir !== "/") {
+        const cwd = await client.pwd();
+        await client.ensureDir(dir);
+        await client.cd(cwd);
+      }
+      await client.uploadFrom(local, remote);
     },
     async uploadDir(local, remote) {
       await client.uploadFromDir(local, remote);
