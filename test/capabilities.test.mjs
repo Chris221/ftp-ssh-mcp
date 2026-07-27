@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config.mjs";
-import { ALL, selectCapabilities } from "../src/capabilities/index.mjs";
+import { ALL, selectCapabilities, unknownCapabilities } from "../src/capabilities/index.mjs";
 import { buildTools } from "./fixtures/tool-runner.mjs";
 
 // sshRun is mocked so the deviation-2 mysql tests can drive an auth failure
@@ -72,6 +72,46 @@ describe("capability selection", () => {
 
   it("exposes exactly the three built-in capabilities", () => {
     expect(ALL.map((c) => c.name)).toStrictEqual(["files", "ssh", "mysql"]);
+  });
+});
+
+// main() turns a non-empty result into a startup error, so this is the guard
+// that keeps a typo in MCP_CAPABILITIES ("file", "sql") from silently
+// producing a server with fewer tools than the user asked for. It had no tests.
+describe("unknownCapabilities", () => {
+  const unknownFor = (env) => unknownCapabilities(resolveConfig(env));
+
+  it("returns [] when MCP_CAPABILITIES is unset", () => {
+    expect(unknownFor(ftpOnly)).toStrictEqual([]);
+  });
+
+  it("returns [] when every name is a built-in", () => {
+    expect(unknownFor({ ...ftpOnly, MCP_CAPABILITIES: "files,ssh,mysql" })).toStrictEqual([]);
+  });
+
+  it("does not flag a valid name that is simply not configured", () => {
+    // "ssh" is valid but inactive here; that is a configWarnings matter, not a
+    // startup error, and conflating them would refuse to start a fine config.
+    expect(unknownFor({ ...ftpOnly, MCP_CAPABILITIES: "files,ssh" })).toStrictEqual([]);
+  });
+
+  it("names an unknown capability", () => {
+    expect(unknownFor({ ...ftpOnly, MCP_CAPABILITIES: "files,nope" })).toStrictEqual(["nope"]);
+  });
+
+  it("names every unknown capability, in the order given", () => {
+    expect(unknownFor({ ...ftpOnly, MCP_CAPABILITIES: "sql,files,file" })).toStrictEqual([
+      "sql",
+      "file",
+    ]);
+  });
+
+  it("is case-sensitive, so Files is not files", () => {
+    expect(unknownFor({ ...ftpOnly, MCP_CAPABILITIES: "Files" })).toStrictEqual(["Files"]);
+  });
+
+  it("ignores whitespace around names, matching how they are parsed", () => {
+    expect(unknownFor({ ...ftpOnly, MCP_CAPABILITIES: " files , ssh " })).toStrictEqual([]);
   });
 });
 

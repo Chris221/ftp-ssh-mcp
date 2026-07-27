@@ -26,3 +26,20 @@ jobs:
           FTP_HOST: example.invalid
           FTP_USER: ci
           FTP_PASSWORD: ci
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Runtime dependencies only: a dev-only advisory cannot reach an installed
+      # user. --audit-level=high rather than the default because the MCP SDK
+      # currently pulls in two MODERATE @hono/node-server advisories that are
+      # unreachable over stdio (this server never starts an HTTP listener) and
+      # have no upstream fix short of a breaking SDK downgrade. Anything high or
+      # critical still fails the build.
+      - run: npm audit --omit=dev --audit-level=high

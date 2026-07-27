@@ -351,6 +351,27 @@ describe("validateConfig", () => {
     );
   });
 
+  // A key is as valid a secret as a password for SSH, and key auth is the
+  // commonest SSH setup — naming only SSH_PASSWORD sends that user to fix the
+  // wrong variable.
+  it("names both SSH secrets when an SSH profile has neither", () => {
+    // REMOTE_PASSWORD is set but not inherited, because SSH_USER names its own
+    // identity — the case where the message actually gets read.
+    const cfg = resolveConfig({ SSH_HOST: "h", SSH_USER: "u", REMOTE_PASSWORD: "shared" });
+    expect(() => validateConfig(cfg)).toThrow(/SSH_PASSWORD or SSH_PRIVATE_KEY/);
+  });
+
+  it("accepts an SSH profile whose only secret is a private key", () => {
+    const cfg = resolveConfig({ SSH_HOST: "h", SSH_USER: "u", SSH_PRIVATE_KEY: "/keys/id_rsa" });
+    expect(() => validateConfig(cfg)).not.toThrow();
+  });
+
+  it("still names only FTP_PASSWORD for the ftp profile, which has no key option", () => {
+    expect(() => validateConfig(resolveConfig({ FTP_HOST: "h", FTP_USER: "u" }))).toThrow(
+      /^FTP_PASSWORD is not set\./
+    );
+  });
+
   it("rejects an unknown FILE_TRANSPORT", () => {
     expect(() => validateConfig(resolveConfig({ ...ftpOnly, FILE_TRANSPORT: "scp" }))).toThrow(
       /FILE_TRANSPORT/
@@ -442,6 +463,46 @@ describe("configWarnings", () => {
       MCP_CAPABILITIES: "ssh",
     });
     expect(configWarnings(cfg)).toStrictEqual([]);
+  });
+
+  // MCP_CAPABILITIES=ssh with SSH_ALLOW_EXEC unset used to start a server with
+  // no tools and no diagnostic at all — indistinguishable from the client
+  // failing to connect.
+  describe("requested but inactive capabilities", () => {
+    const inactiveWarning = (names, zero) =>
+      "MCP_CAPABILITIES names capabilities that are not configured, so they registered no " +
+      `tools: ${names}. See the Capabilities table in the README for what ` +
+      "each one requires." +
+      (zero ? " No capability is active at all: this server exposes no tools." : "");
+
+    it("warns, and says the server has no tools, when nothing activates", () => {
+      const cfg = resolveConfig({ ...quietSsh, MCP_CAPABILITIES: "ssh" });
+      expect(configWarnings(cfg)).toStrictEqual([inactiveWarning("ssh", true)]);
+    });
+
+    it("warns without the no-tools sentence when something else is active", () => {
+      const cfg = resolveConfig({ ...quietSsh, MCP_CAPABILITIES: "files,mysql" });
+      expect(configWarnings(cfg)).toStrictEqual([inactiveWarning("mysql", false)]);
+    });
+
+    it("lists every inactive capability", () => {
+      const cfg = resolveConfig({ ...quietSsh, MCP_CAPABILITIES: "ssh,mysql" });
+      expect(configWarnings(cfg)).toStrictEqual([inactiveWarning("ssh, mysql", true)]);
+    });
+
+    it("does not warn when every requested capability is active", () => {
+      const cfg = resolveConfig({ ...quietSsh, SSH_ALLOW_EXEC: "true", MCP_CAPABILITIES: "files,ssh" });
+      expect(configWarnings(cfg)).toStrictEqual([]);
+    });
+
+    it("does not warn when MCP_CAPABILITIES is unset", () => {
+      expect(configWarnings(resolveConfig(quietSsh))).toStrictEqual([]);
+    });
+
+    it("says nothing about an unknown name, which is a startup error instead", () => {
+      const cfg = resolveConfig({ ...quietSsh, MCP_CAPABILITIES: "files,nope" });
+      expect(configWarnings(cfg)).toStrictEqual([]);
+    });
   });
 
   it("warns when DB_USER is set but no password resolves", () => {

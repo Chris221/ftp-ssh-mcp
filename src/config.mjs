@@ -5,6 +5,7 @@
 
 import path from "node:path";
 
+import { ALL, selectCapabilities } from "./capabilities/index.mjs";
 import { expandHome, normalizeFingerprint } from "./guards.mjs";
 
 const posix = path.posix;
@@ -160,8 +161,13 @@ export function validateConfig(config) {
     if (!profile.user) throw new Error(`${prefix}_USER (or REMOTE_USER) is not set.`);
     const hasSecret = profile.password || profile.privateKeyPath;
     if (!hasSecret) {
+      // Name every secret that would satisfy the profile. Saying "SSH_PASSWORD
+      // is not set" to someone setting up key auth is wrong advice on the most
+      // common SSH configuration there is.
+      const options =
+        prefix === "SSH" ? `${prefix}_PASSWORD or ${prefix}_PRIVATE_KEY` : `${prefix}_PASSWORD`;
       throw new Error(
-        `${prefix}_PASSWORD is not set. ${prefix}_USER names its own identity, so its ` +
+        `${options} is not set. ${prefix}_USER names its own identity, so its ` +
           `secret must be set explicitly rather than inherited from REMOTE_PASSWORD.`
       );
     }
@@ -237,6 +243,26 @@ export function configWarnings(config) {
             `${variable} (or REMOTE_BASE_DIR).`
         );
       }
+    }
+  }
+
+  // An allowlist naming a capability that never activates is silent otherwise:
+  // MCP_CAPABILITIES=ssh with SSH_ALLOW_EXEC unset starts a server with no
+  // tools at all and says nothing about why. Unknown NAMES are a startup error
+  // (see unknownCapabilities), so only known-but-inactive ones are listed here.
+  if (config.requestedCapabilities) {
+    const known = new Set(ALL.map((capability) => capability.name));
+    const active = new Set(selectCapabilities(config).map((capability) => capability.name));
+    const inactive = config.requestedCapabilities.filter(
+      (name) => known.has(name) && !active.has(name)
+    );
+    if (inactive.length > 0) {
+      warnings.push(
+        "MCP_CAPABILITIES names capabilities that are not configured, so they registered no " +
+          `tools: ${inactive.join(", ")}. See the Capabilities table in the README for what ` +
+          "each one requires." +
+          (active.size === 0 ? " No capability is active at all: this server exposes no tools." : "")
+      );
     }
   }
 

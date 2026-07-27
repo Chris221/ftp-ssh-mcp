@@ -121,6 +121,19 @@ A `DB_USER` with no resolvable `DB_PASSWORD` is not treated as an error: the rem
 
 None of this makes the remote host a sandbox. An allowed command still runs with the full privileges of whichever account is configured, and there is no isolation between what `ssh_exec` can do and what that account could do logged in directly. The guards constrain the *shape* of a single call — one program, no shell tricks, paths that stay inside a base directory — they do not constrain what an allowed program itself is capable of once it runs.
 
+Found a security problem? Please report it privately — see [SECURITY.md](./SECURITY.md).
+
+### Known advisories
+
+`npm install ftp-ssh-mcp` currently reports **two moderate advisories** for
+`@hono/node-server`, pulled in transitively by `@modelcontextprotocol/sdk`. They
+concern path traversal in that package's static-file server on Windows. This
+server talks JSON-RPC over stdio and never starts an HTTP listener, so that code
+path is not reachable here, and the only "fix" npm offers is a breaking downgrade
+of the SDK. CI runs `npm audit --omit=dev --audit-level=high`, which passes today
+while still failing the build on anything high or critical. The advisories will
+clear when the SDK updates its dependency.
+
 ## Development
 
 ```bash
