@@ -17,22 +17,47 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { Server } from "ssh2";
+import { Server, utils } from "ssh2";
 
 import { freePort } from "./free-port.mjs";
 import { generateHostKey } from "./host-key.mjs";
 
-const { OPEN_MODE, STATUS_CODE } = (await import("ssh2")).utils.sftp;
+const { OPEN_MODE, STATUS_CODE } = utils.sftp;
 
-export async function startSftpServer({ root, user = "tester", password = "secret" } = {}) {
+/**
+ * Server-side authentication, one method per fixture.
+ *
+ * `auth` picks which method this server will accept, so a test can prove a
+ * client-side auth path actually works rather than falling through to another:
+ *
+ *   - "password" (default): the plain password method.
+ *   - "keyboard-interactive": password auth presented as a single prompt, the
+ *     shape many shared hosts use. Every other method is rejected, so a client
+ *     that offers `tryKeyboard` without answering the prompt hangs rather than
+ *     quietly succeeding by another route.
+ *   - "publickey": only the key in `clientKey` (a private-key PEM, from which
+ *     the fixture derives the public half) is accepted.
+ */
+export async function startSftpServer({
+  root,
+  user = "tester",
+  password = "secret",
+  auth = "password",
+  clientKey = null,
+} = {}) {
   const port = await freePort();
   const handles = new Map();
   let nextHandle = 0;
+  const hostKey = generateHostKey();
 
   // Returned to the caller and mutated by tests (`server.onExec = ...`). The
   // exec handler below closes over this exact object, so later mutation is
   // visible to it — do not spread/copy it when returning.
-  const fixture = { port, execCommands: [], onExec: null };
+  //
+  // `hostKey` is exposed because it is generated fresh per run: a test that
+  // needs the expected SSH_HOST_FINGERPRINT computes it from this rather than
+  // from a committed key.
+  const fixture = { port, hostKey, execCommands: [], onExec: null };
 
   // Map a client path onto the temp root, refusing anything that escapes it.
   const localPath = (given) => {
@@ -43,14 +68,47 @@ export async function startSftpServer({ root, user = "tester", password = "secre
     return resolved;
   };
 
-  const server = new Server({ hostKeys: [generateHostKey()] }, (client) => {
+  const allowedKey = clientKey ? utils.parseKey(clientKey) : null;
+
+  const server = new Server({ hostKeys: [hostKey] }, (client) => {
     client
-      .on("authentication", (auth) => {
-        if (auth.method === "password" && auth.username === user && auth.password === password) {
-          return auth.accept();
+      .on("authentication", (ctx) => {
+        if (ctx.username !== user) return ctx.reject();
+
+        if (auth === "publickey") {
+          if (ctx.method !== "publickey") return ctx.reject(["publickey"]);
+          // The algorithm name is deliberately not compared: a modern client
+          // signs an RSA key as rsa-sha2-256/512 while the parsed key's type
+          // is still ssh-rsa. What must match is the key itself, and then the
+          // signature over the session blob.
+          if (!ctx.key.data.equals(allowedKey.getPublicSSH())) return ctx.reject();
+          if (ctx.signature) {
+            // parseKey().verify() wants a DIGEST name, not the SSH algorithm
+            // name the context carries: passing "ssh-rsa" straight through
+            // throws ERR_CRYPTO_INVALID_DIGEST. The name is not a reliable
+            // guide either — ssh2's client reports ssh-rsa here while actually
+            // signing with SHA-256 — so the fixture tries the plausible digests
+            // and accepts if any of them verifies. verify() returns an Error
+            // object rather than throwing for a bad digest, hence `=== true`.
+            const verified = ["sha256", "sha512", "sha1"].some(
+              (digest) => allowedKey.verify(ctx.blob, ctx.signature, digest) === true
+            );
+            if (!verified) return ctx.reject();
+          }
+          return ctx.accept();
         }
-        if (auth.method === "none") return auth.reject(["password"]);
-        return auth.reject();
+
+        if (auth === "keyboard-interactive") {
+          if (ctx.method !== "keyboard-interactive") return ctx.reject(["keyboard-interactive"]);
+          return ctx.prompt([{ prompt: "Password: ", echo: false }], (answers) => {
+            if (answers && answers[0] === password) return ctx.accept();
+            return ctx.reject();
+          });
+        }
+
+        if (ctx.method === "password" && ctx.password === password) return ctx.accept();
+        if (ctx.method === "none") return ctx.reject(["password"]);
+        return ctx.reject();
       })
       .on("ready", () => {
         client.on("session", (accept) => {

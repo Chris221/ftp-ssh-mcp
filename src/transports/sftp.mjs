@@ -1,6 +1,7 @@
 // ssh2-sftp-client adapter. Normalized to the shape in ./index.mjs.
-import { readFile } from "node:fs/promises";
 import path from "node:path";
+
+import { attachKeyboardInteractive, buildAuthOptions } from "../ssh.mjs";
 
 const posix = path.posix;
 
@@ -57,25 +58,16 @@ export async function withSftp(profile, fn) {
     end: () => {},
     close: () => {},
   });
-  // SFTP rides on SSH, so it takes the same auth as ssh_exec: a key, a password,
-  // or both. An encrypted key is useless without its passphrase.
-  const auth = {};
-  if (profile.privateKeyPath) {
-    auth.privateKey = await readFile(profile.privateKeyPath);
-    if (profile.passphrase) auth.passphrase = profile.passphrase;
-  }
-  if (profile.password) {
-    auth.password = profile.password;
-    auth.tryKeyboard = true;
-  }
 
-  await sftp.connect({
-    host: profile.host,
-    port: profile.port,
-    username: profile.user,
-    readyTimeout: profile.timeout,
-    ...auth,
-  });
+  // SFTP rides on SSH, so it takes exactly the same connect options as
+  // ssh_exec, built by the same function — see buildAuthOptions in ../ssh.mjs
+  // for why this must not be hand-rolled here again. `sftp.client` is the
+  // underlying ssh2 Client, and the keyboard-interactive listener has to be on
+  // it before connect() or the prompt goes unanswered.
+  const options = await buildAuthOptions(profile);
+  attachKeyboardInteractive(sftp.client, profile);
+
+  await sftp.connect(options);
   try {
     return await fn(sftpAdapter(sftp));
   } finally {

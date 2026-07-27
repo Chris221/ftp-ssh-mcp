@@ -18,13 +18,24 @@ export function assertSshUsable(profile) {
 }
 
 /**
- * Build ssh2 connection options.
+ * Build the ssh2 connect options for a profile — address, identity and
+ * authentication.
+ *
+ * This is the ONE builder for both SSH-backed transports: ssh_exec (withSsh
+ * here) and SFTP (withSftp in transports/sftp.mjs). They previously carried
+ * hand-duplicated copies which had already diverged — the SFTP copy set
+ * `tryKeyboard` but registered no keyboard-interactive handler, so a host
+ * presenting password auth as keyboard-interactive (exactly the case the SSH
+ * copy was written for) stalled until readyTimeout, 120s by default, and then
+ * failed, while ssh_exec against the same host worked. Keeping one builder is
+ * what stops that from happening again, so resist inlining "just this one
+ * option" at either call site.
  *
  * A key and a password are not mutually exclusive: some hosts require both, in
  * sequence. When both are configured, `authHandler` lists the methods to walk so
  * the server can ask for a second factor after the first succeeds.
  */
-async function connectOptions(profile) {
+export async function buildAuthOptions(profile) {
   const options = {
     host: profile.host,
     port: profile.port,
@@ -47,24 +58,32 @@ async function connectOptions(profile) {
   return options;
 }
 
+/**
+ * Answer the keyboard-interactive prompt with the profile's password.
+ *
+ * `tryKeyboard` alone only offers the method; without this listener ssh2 never
+ * replies to the prompt and the connection hangs until readyTimeout. Must be
+ * attached to the ssh2 Client BEFORE connect() is called.
+ */
+export function attachKeyboardInteractive(client, profile) {
+  client.on("keyboard-interactive", (_name, _instructions, _lang, prompts, finish) => {
+    finish(prompts.map(() => profile.password));
+  });
+  return client;
+}
+
 /** Open an SSH connection, hand it to `fn`, always tear it down. */
 export async function withSsh(profile, fn) {
   const { Client } = await import("ssh2").catch(() => {
     throw new Error("SSH requires the 'ssh2' package. Run: npm install ssh2");
   });
 
-  const options = await connectOptions(profile);
+  const options = await buildAuthOptions(profile);
   const conn = new Client();
   try {
     await new Promise((resolve, reject) => {
-      conn
-        .on("ready", resolve)
-        .on("error", reject)
-        // Hosts that use keyboard-interactive for password auth send one prompt.
-        .on("keyboard-interactive", (_n, _i, _l, prompts, finish) => {
-          finish(prompts.map(() => profile.password));
-        })
-        .connect(options);
+      attachKeyboardInteractive(conn, profile);
+      conn.on("ready", resolve).on("error", reject).connect(options);
     });
     return await fn(conn);
   } finally {
