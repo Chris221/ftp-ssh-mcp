@@ -75,7 +75,7 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `FTP_PORT` | `21` | |
 | `FTP_USER` | inherits `REMOTE_USER` | |
 | `FTP_PASSWORD` | see secret inheritance | |
-| `FTP_BASE_DIR` | inherits `REMOTE_BASE_DIR` | |
+| `FTP_BASE_DIR` | inherits `REMOTE_BASE_DIR`, then `SSH_BASE_DIR` | Base directory the `files` tools are confined to on this transport. |
 | `FTP_SECURITY` | `ftps` | `ftps` (explicit TLS), `ftp` (plaintext), or `ftps-implicit`. |
 | `FTP_TLS_REJECT_UNAUTHORIZED` | `true` | Set `false` to accept a self-signed or otherwise unverifiable certificate. |
 | `FTP_TIMEOUT_MS` | `30000` | |
@@ -86,7 +86,7 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `SSH_PRIVATE_KEY` | see secret inheritance | Local path to a private key. A leading `~` is expanded. |
 | `SSH_PASSPHRASE` | see secret inheritance | Passphrase for `SSH_PRIVATE_KEY`. |
 | `SSH_HOST_FINGERPRINT` | inherits `REMOTE_HOST_FINGERPRINT` | SHA-256 host key fingerprint to pin. Accepts the `SHA256:<base64>` form or a bare hex digest. Not a secret, so it inherits freely. Unset means any host key is accepted, and the server warns at startup. See Security below. |
-| `SSH_BASE_DIR` | inherits `REMOTE_BASE_DIR` | Required for `ssh_exec` and `mysql_query`, which both need a known working directory. |
+| `SSH_BASE_DIR` | inherits `REMOTE_BASE_DIR`, then `FTP_BASE_DIR` | Required for `ssh_exec` and `mysql_query`, which both need a known working directory. Also the confinement root for `files` calls on the sftp transport. |
 | `SSH_ACTIVATE` | — | Remote path to a script (e.g. a Node virtualenv's `activate`) sourced before every command. Missing file is non-fatal — the command still runs. |
 | `SSH_TIMEOUT_MS` | `120000` | Connection and per-command timeout. |
 | `SSH_MAX_OUTPUT` | `100000` | Combined stdout+stderr byte cap per command; output beyond this is truncated, not buffered. |
@@ -106,7 +106,7 @@ A `DB_USER` with no resolvable `DB_PASSWORD` is not treated as an error: the rem
 
 - `ssh_exec` only runs a program named in `SSH_ALLOWED_CMDS`, checked against the first whitespace-delimited token of the command — not a policy over arguments.
 - Before that check, the command is rejected outright if it contains any of a fourteen-character shell metacharacter class (`; & | ` `$` `(` `)` `{` `}` `<` `>` `\` and newline/carriage return), so a call can only ever be a single plain invocation — no chaining, redirection, or substitution.
-- Remote paths passed to the `files` tools and to `SSH_BASE_DIR`/`FTP_BASE_DIR` are resolved and confined to the profile's configured base directory; `..` segments are rejected outright.
+- Remote paths passed to the `files` tools and to `SSH_BASE_DIR`/`FTP_BASE_DIR` are resolved and confined to the profile's configured base directory; `..` segments are rejected outright. Confinement is per profile, and a per-call `transport` override is confined to the profile it selects, not to the default one. **A profile with no base directory at all is not confined** — there is nothing to confine it to — so each profile falls back to the other's base directory when it has none of its own, and the server warns on stderr at startup for any transport that still ends up without one.
 - Deletes (`FTP_ALLOW_DELETE`) and shell execution (`SSH_ALLOW_EXEC`) are both off by default and must be turned on explicitly.
 - **Pin the SSH host key with `SSH_HOST_FINGERPRINT`.** Unless it is set, the SSH and SFTP connections accept whatever host key they are offered — there is no `known_hosts` to fall back on — so anything on the network path can present its own key and be handed the account's password. When the variable is set, a mismatched key aborts the connection with an error naming both the expected and the received fingerprint; when it is unset, the server says so in a startup warning on stderr. Get the value from the host you trust with:
 

@@ -102,6 +102,21 @@ export function resolveConfig(env = process.env) {
   const ftp = resolveFtp(env);
   const ssh = resolveSsh(env);
 
+  // Cross-profile base-directory fallback, applied after the own -> REMOTE_
+  // chain, so the full precedence is: own -> REMOTE_BASE_DIR -> the other
+  // profile's -> "".
+  //
+  // An empty baseDir means NO path confinement, and the two profiles are
+  // configured independently, so the documented "required for ssh_exec" advice
+  // used to leave a user with SSH_BASE_DIR set, FTP_BASE_DIR unset, and
+  // completely unconfined file tools on the default (ftp) transport. Confinement
+  // is stated as a guarantee in the README; borrowing the other profile's root
+  // is what keeps that true. It is a fallback, never an override — a profile
+  // that sets its own root always keeps it, because on cPanel the FTP account is
+  // often chrooted where SSH sees the whole home.
+  if (ftp && !ftp.baseDir && ssh && ssh.baseDir) ftp.baseDir = ssh.baseDir;
+  if (ssh && !ssh.baseDir && ftp && ftp.baseDir) ssh.baseDir = ftp.baseDir;
+
   const requested = env.MCP_CAPABILITIES
     ? env.MCP_CAPABILITIES.split(",").map((s) => s.trim()).filter(Boolean)
     : null;
@@ -197,6 +212,26 @@ export function configWarnings(config) {
         "and a machine on the path could impersonate the host. Pin it with the output of " +
         '"ssh-keyscan -t rsa <host> | ssh-keygen -lf -".'
     );
+  }
+
+  // resolveRemotePath treats an empty baseDir as "no confinement", and the file
+  // tools can be pointed at either profile per call, so any configured profile
+  // without a base directory is an unconfined one. Say which transport it is.
+  const servesFiles =
+    !config.requestedCapabilities || config.requestedCapabilities.includes("files");
+  if (servesFiles) {
+    for (const [name, variable, profile] of [
+      ["ftp", "FTP_BASE_DIR", config.ftp],
+      ["sftp", "SSH_BASE_DIR", config.ssh],
+    ]) {
+      if (profile && !profile.baseDir) {
+        warnings.push(
+          `No base directory resolved for the ${name} transport, so path confinement is ` +
+            `disabled there: the file tools can reach any path the account can. Set ` +
+            `${variable} (or REMOTE_BASE_DIR).`
+        );
+      }
+    }
   }
 
   if (config.db && config.db.user && !config.db.password) {

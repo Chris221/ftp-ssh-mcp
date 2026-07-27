@@ -52,6 +52,56 @@ describe("REMOTE_* fallback", () => {
   });
 });
 
+// An empty baseDir means NO path confinement (resolveRemotePath treats it as
+// "anywhere"), and the two profiles are configured independently. The README
+// tells users SSH_BASE_DIR is required for ssh_exec, so setting only that one
+// is the likely case — and it used to leave the default ftp transport
+// completely unconfined while the README promised confinement.
+describe("cross-profile base dir fallback", () => {
+  const both = { ...ftpOnly, ...sshOnly };
+
+  it("lends the SSH base dir to a profile-less FTP profile", () => {
+    const cfg = resolveConfig({ ...both, SSH_BASE_DIR: "/home/u/site" });
+    expect(cfg.ftp.baseDir).toBe("/home/u/site");
+    expect(cfg.ssh.baseDir).toBe("/home/u/site");
+  });
+
+  it("lends the FTP base dir to a profile-less SSH profile", () => {
+    const cfg = resolveConfig({ ...both, FTP_BASE_DIR: "/home/u/site" });
+    expect(cfg.ssh.baseDir).toBe("/home/u/site");
+    expect(cfg.ftp.baseDir).toBe("/home/u/site");
+  });
+
+  it("never overrides a profile's own base dir", () => {
+    // The cPanel shape this protects: the FTP account is chrooted to the web
+    // root while SSH sees the whole home. Borrowing must not flatten that.
+    const cfg = resolveConfig({
+      ...both,
+      FTP_BASE_DIR: "/home/u/public_html",
+      SSH_BASE_DIR: "/home/u",
+    });
+    expect(cfg.ftp.baseDir).toBe("/home/u/public_html");
+    expect(cfg.ssh.baseDir).toBe("/home/u");
+  });
+
+  it("prefers REMOTE_BASE_DIR over the other profile's value", () => {
+    const cfg = resolveConfig({ ...both, REMOTE_BASE_DIR: "/shared", SSH_BASE_DIR: "/home/u" });
+    expect(cfg.ftp.baseDir).toBe("/shared");
+  });
+
+  it("leaves both empty when neither profile has one", () => {
+    const cfg = resolveConfig(both);
+    expect(cfg.ftp.baseDir).toBe("");
+    expect(cfg.ssh.baseDir).toBe("");
+  });
+
+  it("cannot borrow from a profile that is not configured", () => {
+    const cfg = resolveConfig({ ...ftpOnly, SSH_BASE_DIR: "/home/u" });
+    expect(cfg.ssh).toBe(null);
+    expect(cfg.ftp.baseDir).toBe("");
+  });
+});
+
 describe("secret-inheritance rule", () => {
   it("inherits the shared password when the profile sets no user", () => {
     const cfg = resolveConfig({ REMOTE_HOST: "h", REMOTE_USER: "shared", REMOTE_PASSWORD: "sekrit" });
@@ -307,22 +357,78 @@ describe("configWarnings", () => {
     "and a machine on the path could impersonate the host. Pin it with the output of " +
     '"ssh-keyscan -t rsa <host> | ssh-keygen -lf -".';
 
+  // Each case below varies exactly one dimension, so the other warnings are
+  // switched off by giving the config a base directory and (where relevant) a
+  // pinned fingerprint. Asserting the WHOLE array rather than "contains" is
+  // deliberate: it catches a warning that fires when it should not, which is
+  // how a warning surface stops being read.
+  const pinned = "SHA256:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+  const quietSsh = { ...sshOnly, SSH_BASE_DIR: "/home/u", SSH_HOST_FINGERPRINT: pinned };
+  const quietFtp = { ...ftpOnly, FTP_BASE_DIR: "/home/u" };
+
   it("warns when an SSH profile has no pinned host key", () => {
-    expect(configWarnings(resolveConfig(sshOnly))).toStrictEqual([HOST_KEY_WARNING]);
+    const cfg = resolveConfig({ ...sshOnly, SSH_BASE_DIR: "/home/u" });
+    expect(configWarnings(cfg)).toStrictEqual([HOST_KEY_WARNING]);
   });
 
   it("does not warn about the host key once a fingerprint is pinned", () => {
-    const cfg = resolveConfig({
-      ...sshOnly,
-      SSH_HOST_FINGERPRINT: "SHA256:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
-    });
-    expect(configWarnings(cfg)).toStrictEqual([]);
+    expect(configWarnings(resolveConfig(quietSsh))).toStrictEqual([]);
   });
 
   it("does not warn about the host key for an ftp-only config", () => {
     // No SSH profile means no SSH handshake to verify — the warning would be
     // noise, and noise is what makes real warnings get ignored.
-    expect(configWarnings(resolveConfig(ftpOnly))).toStrictEqual([]);
+    expect(configWarnings(resolveConfig(quietFtp))).toStrictEqual([]);
+  });
+
+  const unconfined = (name, variable) =>
+    `No base directory resolved for the ${name} transport, so path confinement is ` +
+    `disabled there: the file tools can reach any path the account can. Set ` +
+    `${variable} (or REMOTE_BASE_DIR).`;
+
+  it("warns when the ftp transport has no base directory", () => {
+    expect(configWarnings(resolveConfig(ftpOnly))).toStrictEqual([
+      unconfined("ftp", "FTP_BASE_DIR"),
+    ]);
+  });
+
+  it("warns when the sftp transport has no base directory", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_HOST_FINGERPRINT: pinned });
+    expect(configWarnings(cfg)).toStrictEqual([unconfined("sftp", "SSH_BASE_DIR")]);
+  });
+
+  it("does not warn once the base dir is borrowed from the other profile", () => {
+    // The fix for the "SSH_BASE_DIR set, FTP_BASE_DIR unset" case: FTP is
+    // confined by borrowing, so there is nothing left to warn about.
+    const cfg = resolveConfig({
+      ...ftpOnly,
+      ...sshOnly,
+      SSH_BASE_DIR: "/home/u",
+      SSH_HOST_FINGERPRINT: pinned,
+    });
+    expect(cfg.ftp.baseDir).toBe("/home/u");
+    expect(configWarnings(cfg)).toStrictEqual([]);
+  });
+
+  it("warns about both transports when neither has a base dir", () => {
+    const cfg = resolveConfig({ ...ftpOnly, ...sshOnly, SSH_HOST_FINGERPRINT: pinned });
+    expect(configWarnings(cfg)).toStrictEqual([
+      unconfined("ftp", "FTP_BASE_DIR"),
+      unconfined("sftp", "SSH_BASE_DIR"),
+    ]);
+  });
+
+  it("does not warn about confinement when the files capability is not selected", () => {
+    // No file tools are registered, so there is nothing unconfined to warn
+    // about — and an unactionable warning trains people to ignore the rest.
+    const cfg = resolveConfig({
+      ...sshOnly,
+      SSH_ALLOW_EXEC: "true",
+      SSH_BASE_DIR: "/home/u",
+      SSH_HOST_FINGERPRINT: pinned,
+      MCP_CAPABILITIES: "ssh",
+    });
+    expect(configWarnings(cfg)).toStrictEqual([]);
   });
 
   it("warns when DB_USER is set but no password resolves", () => {

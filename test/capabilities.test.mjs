@@ -175,6 +175,77 @@ describe("safety clamps", () => {
   });
 });
 
+// The file tools take a per-call `transport` override, and each profile has
+// its own base directory, so confinement has to hold for the profile the call
+// selects — not just for the default one. Before the cross-profile fallback, a
+// config with FTP_BASE_DIR set and SSH_BASE_DIR unset resolved an sftp-override
+// call against an empty base dir, which resolveRemotePath treats as "no
+// confinement": /etc/passwd stayed /etc/passwd.
+describe("path confinement follows the per-call transport override", () => {
+  const bothProfiles = { ...ftpOnly, ...sshOnly };
+
+  /** Capture the remote path each tool actually asks the transport for. */
+  const listing = () => {
+    const seen = [];
+    const withClient = (fn) =>
+      fn({
+        list: async (remote) => {
+          seen.push(remote);
+          return [];
+        },
+      });
+    return { seen, withClient };
+  };
+
+  it("confines an sftp-override call to the base dir borrowed from FTP_BASE_DIR", async () => {
+    const config = resolveConfig({ ...bothProfiles, FTP_BASE_DIR: "/home/u/public_html" });
+    const { seen, withClient } = listing();
+    const { run } = buildTools(config, { withClient });
+
+    const result = await run("file_list", { remotePath: "/etc/passwd", transport: "sftp" });
+
+    expect(result.error).toBeUndefined();
+    expect(seen).toStrictEqual(["/home/u/public_html/etc/passwd"]);
+  });
+
+  it("confines an ftp-override call to the base dir borrowed from SSH_BASE_DIR", async () => {
+    const config = resolveConfig({ ...bothProfiles, SSH_BASE_DIR: "/home/u" });
+    const { seen, withClient } = listing();
+    const { run } = buildTools(config, { withClient });
+
+    const result = await run("file_list", { remotePath: "/etc/passwd", transport: "ftp" });
+
+    expect(result.error).toBeUndefined();
+    expect(seen).toStrictEqual(["/home/u/etc/passwd"]);
+  });
+
+  it("still rejects .. on an overridden transport", async () => {
+    const config = resolveConfig({ ...bothProfiles, FTP_BASE_DIR: "/home/u/public_html" });
+    const { seen, withClient } = listing();
+    const { run } = buildTools(config, { withClient });
+
+    const result = await run("file_list", { remotePath: "../../etc", transport: "sftp" });
+
+    expect(result.error).toMatch(/'\.\.' segments/);
+    expect(seen).toStrictEqual([]);
+  });
+
+  it("keeps each profile's own base dir when both are set", async () => {
+    const config = resolveConfig({
+      ...bothProfiles,
+      FTP_BASE_DIR: "/home/u/public_html",
+      SSH_BASE_DIR: "/home/u",
+    });
+    const { seen, withClient } = listing();
+    const { run } = buildTools(config, { withClient });
+
+    await run("file_list", { remotePath: "logs", transport: "ftp" });
+    await run("file_list", { remotePath: "logs", transport: "sftp" });
+
+    expect(seen).toStrictEqual(["/home/u/public_html/logs", "/home/u/logs"]);
+  });
+});
+
 // Deviation 2: mysql_query runs the mysql client on the remote host, where a
 // missing DB_PASSWORD can legitimately mean credentials come from ~/.my.cnf
 // or socket trust (see configWarnings in config.mjs) — so it is a startup
