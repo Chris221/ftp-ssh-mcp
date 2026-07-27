@@ -225,6 +225,44 @@ describe("ssh_exec tool (guards run before anything reaches the wire)", () => {
     expect(server.execCommands).toStrictEqual([]);
   });
 
+  // The six cases above are realistic attack shapes, chosen per named
+  // category (chaining, pipe, substitution x2, redirect, newline). They
+  // don't individually prove every one of SHELL_METACHARACTERS' 14 members
+  // is still in the class, because several rows carry more than one member
+  // at once (e.g. "$(...)" carries both $, ( and ) ) — a regression that
+  // dropped a single character, such as &, could still leave every row
+  // above rejecting (via a different character in the same string) and the
+  // suite would stay green.
+  //
+  // This table closes that gap: one row per character in
+  // SHELL_METACHARACTERS (src/guards.mjs), each command holding that
+  // character and no other class member, so a row can only pass because of
+  // the character it names. \r is included deliberately — this project is
+  // developed on Windows, where a carriage return can arrive in input
+  // without anyone intending it.
+  it.each([
+    ["; (chaining)", "ls; whoami"],
+    ["& (backgrounding/chaining)", "ls & whoami"],
+    ["| (pipe)", "ls | whoami"],
+    ["` (backtick substitution)", "ls `whoami`"],
+    ["$ (variable/substitution)", "ls $HOME"],
+    ["( (subshell/group open)", "ls (whoami"],
+    [") (subshell/group close)", "ls whoami)"],
+    ["{ (brace expansion open)", "ls {whoami"],
+    ["} (brace expansion close)", "ls whoami}"],
+    ["< (input redirect)", "cat < /etc/passwd"],
+    ["> (output redirect)", "echo hi > /etc/passwd"],
+    ["\\n (newline)", "echo hi\nwhoami"],
+    ["\\r (carriage return)", "echo hi\rwhoami"],
+    ["\\\\ (backslash escape)", "echo hi\\whoami"],
+  ])("rejects every character in the shell-metacharacter class in isolation: %s", async (_label, command) => {
+    const run = toolRunner(config);
+    const result = await run("ssh_exec", { command });
+
+    expect(result.error).toMatch(/shell metacharacters/i);
+    expect(server.execCommands).toStrictEqual([]);
+  });
+
   it("runs a permitted, clean command end to end through the tool", async () => {
     server.onExec = (command, stream) => respond(stream, { stdout: "hi\n", code: 0 });
     const run = toolRunner(config);
