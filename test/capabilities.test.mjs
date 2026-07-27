@@ -95,6 +95,86 @@ describe("registered tool names", () => {
   });
 });
 
+// The read-only and delete-disabled clamps are new logic introduced by the
+// capability modules and throw before withClient/sshRun is ever reached, so
+// they are exercisable with no network and no withClient stub: an unstubbed
+// buildTools(config) makes withClient throw loudly if a clamp is ever
+// removed, so these tests fail rather than hang if a regression drops one.
+describe("safety clamps", () => {
+  const notStubbed = /no withClient stub/i;
+
+  it("blocks file_upload when FTP_READONLY=true", async () => {
+    const config = resolveConfig({ ...ftpOnly, FTP_READONLY: "true" });
+    const { run } = buildTools(config);
+    const result = await run("file_upload", { localPath: "/tmp/a.txt", remotePath: "a.txt" });
+    expect(result.error).toMatch(/read-only/i);
+  });
+
+  it("blocks file_mkdir when FTP_READONLY=true — not upload-specific", async () => {
+    const config = resolveConfig({ ...ftpOnly, FTP_READONLY: "true" });
+    const { run } = buildTools(config);
+    const result = await run("file_mkdir", { remotePath: "newdir" });
+    expect(result.error).toMatch(/read-only/i);
+  });
+
+  it("blocks file_upload_dir when FTP_READONLY=true", async () => {
+    const config = resolveConfig({ ...ftpOnly, FTP_READONLY: "true" });
+    const { run } = buildTools(config);
+    const result = await run("file_upload_dir", { localDir: "/tmp/dir", remoteDir: "remotedir" });
+    expect(result.error).toMatch(/read-only/i);
+  });
+
+  it("blocks file_delete without FTP_ALLOW_DELETE, naming the variable", async () => {
+    const config = resolveConfig({ ...ftpOnly });
+    const { run } = buildTools(config);
+    const result = await run("file_delete", { remotePath: "a.txt" });
+    expect(result.error).toMatch(/FTP_ALLOW_DELETE/);
+  });
+
+  it("lets file_delete past the clamp when FTP_ALLOW_DELETE=true and read-only is off", async () => {
+    const config = resolveConfig({ ...ftpOnly, FTP_ALLOW_DELETE: "true" });
+    const { run } = buildTools(config);
+    const result = await run("file_delete", { remotePath: "a.txt" });
+    // No withClient stub was supplied, so getting past the clamp surfaces as
+    // the unstubbed-withClient error, not a deletion-disabled one — that
+    // distinction IS the "it got through" signal here, not a success return.
+    expect(result.error).not.toMatch(/FTP_ALLOW_DELETE/);
+    expect(result.error).toMatch(notStubbed);
+  });
+
+  it("still blocks file_delete on read-only even with FTP_ALLOW_DELETE=true", async () => {
+    const config = resolveConfig({ ...ftpOnly, FTP_READONLY: "true", FTP_ALLOW_DELETE: "true" });
+    const { run } = buildTools(config);
+    const result = await run("file_delete", { remotePath: "a.txt" });
+    expect(result.error).toMatch(/read-only/i);
+  });
+
+  it("blocks ssh_exec when FTP_READONLY=true, even with exec allowed", async () => {
+    const config = resolveConfig({
+      ...sshOnly,
+      SSH_ALLOW_EXEC: "true",
+      SSH_BASE_DIR: "/home/u",
+      FTP_READONLY: "true",
+    });
+    const { run } = buildTools(config);
+    const result = await run("ssh_exec", { command: "ls" });
+    expect(result.error).toMatch(/read-only/i);
+  });
+
+  it("does not block reads (file_list, file_download) on a read-only server", async () => {
+    const config = resolveConfig({ ...ftpOnly, FTP_READONLY: "true" });
+    const { run } = buildTools(config);
+
+    const listResult = await run("file_list", {});
+    expect(listResult.error).not.toMatch(/read-only/i);
+    expect(listResult.error).toMatch(notStubbed);
+
+    const downloadResult = await run("file_download", { remotePath: "a.txt", localPath: "/tmp/a.txt" });
+    expect(downloadResult.error).not.toMatch(/read-only/i);
+    expect(downloadResult.error).toMatch(notStubbed);
+  });
+});
+
 // Deviation 2: mysql_query runs the mysql client on the remote host, where a
 // missing DB_PASSWORD can legitimately mean credentials come from ~/.my.cnf
 // or socket trust (see configWarnings in config.mjs) — so it is a startup
