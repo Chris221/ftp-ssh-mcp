@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { resolveConfig } from "../src/config.mjs";
 import { createServer, selftestSummary, main } from "../src/server.mjs";
 
@@ -58,8 +61,24 @@ describe("selftestSummary", () => {
 });
 
 describe("main", () => {
+  // main() calls loadEnvFile(env, cwd), which reads <cwd>/.env when present.
+  // This package's whole purpose is reading a gitignored .env from the
+  // project root, so a real one is very likely to exist on a dev machine.
+  // Point cwd at a fresh empty directory per test rather than the repo root,
+  // so these tests never depend on whatever local state happens to exist.
+  let dir;
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "server-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("prints configWarnings to stderr when the config triggers one", async () => {
     const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       const env = {
         SSH_HOST: "h",
@@ -69,25 +88,31 @@ describe("main", () => {
         DB_NAME: "n",
         // DB_PASSWORD intentionally unset -> configWarnings() should fire.
       };
-      await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest"], env, process.cwd());
+      await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest"], env, dir);
 
       const lines = stderr.mock.calls.map((call) => call[0]);
       expect(lines.some((line) => String(line).includes("DB_PASSWORD"))).toBe(true);
+      // stdout is the JSON-RPC channel; nothing on this path may write to it.
+      expect(stdout).not.toHaveBeenCalled();
     } finally {
       stderr.mockRestore();
+      stdout.mockRestore();
     }
   });
 
   it("emits no warning for a clean config", async () => {
     const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       const env = { ...ftpOnly };
-      await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest"], env, process.cwd());
+      await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest"], env, dir);
 
       const lines = stderr.mock.calls.map((call) => call[0]);
       expect(lines.some((line) => String(line).includes("DB_PASSWORD"))).toBe(false);
+      expect(stdout).not.toHaveBeenCalled();
     } finally {
       stderr.mockRestore();
+      stdout.mockRestore();
     }
   });
 });
