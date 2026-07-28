@@ -3,12 +3,12 @@
   "name": "io.github.Chris221/ftp-ssh-mcp",
   "description": "Work with a remote host over FTP/FTPS/SFTP, SSH, and MySQL.",
   "repository": { "url": "https://github.com/Chris221/ftp-ssh-mcp", "source": "github" },
-  "version": "0.0.0",
+  "version": "0.9.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "ftp-ssh-mcp",
-      "version": "0.0.0",
+      "version": "0.9.0",
       "transport": { "type": "stdio" }
     }
   ]

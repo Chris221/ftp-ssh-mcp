@@ -15,7 +15,7 @@ Add the server to your MCP client's configuration:
 ```json
 {
   "mcpServers": {
-    "remote": { "command": "npx", "args": ["-y", "ftp-ssh-mcp@1"] }
+    "remote": { "command": "npx", "args": ["-y", "ftp-ssh-mcp@0"] }
   }
 }
 ```
@@ -25,7 +25,7 @@ On Windows, some clients need the command spelled out:
 ```json
 {
   "mcpServers": {
-    "remote": { "command": "cmd", "args": ["/c", "npx", "-y", "ftp-ssh-mcp@1"] }
+    "remote": { "command": "cmd", "args": ["/c", "npx", "-y", "ftp-ssh-mcp@0"] }
   }
 }
 ```

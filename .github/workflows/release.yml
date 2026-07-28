@@ -30,6 +30,21 @@ jobs:
             echo "Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)" >&2
             exit 1
           fi
+      - name: Derive dist-tag from version
+        run: |
+          # npm tags every publish `latest` unless told otherwise — it does NOT
+          # special-case prereleases. Publishing 1.0.0-rc.1 with a bare
+          # `npm publish` would therefore hand it to everyone running
+          # `npm install ftp-ssh-mcp`. A version containing `-` is a prerelease
+          # per semver, so route it to `next` and leave `latest` on the last
+          # stable release.
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          case "$PKG_VERSION" in
+            *-*) DIST_TAG=next ;;
+            *)   DIST_TAG=latest ;;
+          esac
+          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+          echo "Publishing $PKG_VERSION under dist-tag $DIST_TAG"
       - run: npm ci
       - run: npm test
-      - run: npm publish --provenance --access public
+      - run: npm publish --provenance --access public --tag "$DIST_TAG"
