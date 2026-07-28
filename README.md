@@ -8,9 +8,16 @@
 
 An MCP server for working with a single remote host over FTP, FTPS, SFTP, and SSH — the kind of host a typical shared-hosting or cPanel deployment gives you, not a cloud provider's API. It groups its tools into three capability classes: file transfer (list, upload, download, mkdir, delete), shell execution over SSH, and a MySQL query wrapper that also runs over SSH. File transfer is the only capability enabled by default — shell execution and database access are both opt-in and stay off until you explicitly turn them on. Treat those two as equally dangerous: `mysql_query` runs arbitrary SQL on a production database and can escape to a shell, so it is not the milder of the pair.
 
-## Quickstart
+## Install
 
-Add the server to your MCP client's configuration:
+Published to npm and run with `npx` — there is nothing to clone or build. Requires Node 20 or newer. Works on Windows, macOS and Linux.
+
+### 1. Add it to your MCP client
+
+> **On Windows, use the `cmd /c` form shown for each client below.** Most clients spawn `command` directly rather than through a shell, and `npx` on Windows is a `.cmd` shim that cannot be executed that way — the server simply fails to start, usually with no useful error. Treat this as the rule on Windows, not an edge case.
+
+<details open>
+<summary><b>Claude Code</b> — <code>.mcp.json</code> in the project root</summary>
 
 ```json
 {
@@ -20,7 +27,7 @@ Add the server to your MCP client's configuration:
 }
 ```
 
-On Windows, some clients need the command spelled out:
+Windows:
 
 ```json
 {
@@ -30,7 +37,69 @@ On Windows, some clients need the command spelled out:
 }
 ```
 
-Then create a `.env` file in your project root (the server discovers it relative to the MCP client's working directory) with at least a host, a user, and a secret:
+</details>
+
+<details>
+<summary><b>Claude Desktop</b> — <code>claude_desktop_config.json</code></summary>
+
+| OS | Path |
+| --- | --- |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
+
+Same `mcpServers` shape as Claude Code. Claude Desktop has no project directory, so set `MCP_ENV_FILE` to an absolute path — see step 2.
+
+</details>
+
+<details>
+<summary><b>Cursor</b> — <code>.cursor/mcp.json</code> (project) or <code>~/.cursor/mcp.json</code> (global)</summary>
+
+Same `mcpServers` shape as Claude Code.
+
+</details>
+
+<details>
+<summary><b>VS Code</b> — <code>.vscode/mcp.json</code> (workspace), or <b>MCP: Open User Configuration</b> for global</summary>
+
+VS Code uses `servers`, **not** `mcpServers`:
+
+```json
+{
+  "servers": {
+    "remote": { "command": "npx", "args": ["-y", "ftp-ssh-mcp@0"] }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><b>Codex CLI</b> — <code>~/.codex/config.toml</code>, or <code>.codex/config.toml</code> in a trusted project</summary>
+
+Codex uses TOML with a snake_case `mcp_servers` table:
+
+```toml
+[mcp_servers.remote]
+command = "npx"
+args = ["-y", "ftp-ssh-mcp@0"]
+```
+
+Windows:
+
+```toml
+[mcp_servers.remote]
+command = "cmd"
+args = ["/c", "npx", "-y", "ftp-ssh-mcp@0"]
+```
+
+Or add it from the shell: `codex mcp add remote -- npx -y ftp-ssh-mcp@0`
+
+</details>
+
+### 2. Point it at a host
+
+Create a `.env` file in your project root. The server reads it from the working directory, which is the project root for project-scoped clients:
 
 ```
 REMOTE_HOST=ftp.example.com
@@ -39,7 +108,63 @@ REMOTE_PASSWORD=your-password
 REMOTE_BASE_DIR=/home/deploy/public_html
 ```
 
-See [`.env.example`](./.env.example) for every variable, and the Configuration section below for what each one does.
+That is enough for the six file tools over FTPS. **Keep this file out of version control** — add `.env` and `.env.*` to `.gitignore`. Getting credentials out of a tracked config file is the reason the server reads `.env` at all.
+
+If your client has no project directory (Claude Desktop), or you want several servers against different accounts, point each at its own file instead:
+
+```json
+{
+  "mcpServers": {
+    "prod": {
+      "command": "npx",
+      "args": ["-y", "ftp-ssh-mcp@0"],
+      "env": { "MCP_ENV_FILE": "/absolute/path/to/.env.prod" }
+    }
+  }
+}
+```
+
+A fuller setup, adding shell execution and database access — both off unless you opt in:
+
+```
+REMOTE_HOST=example.com
+REMOTE_USER=deploy
+REMOTE_PASSWORD=your-password
+REMOTE_BASE_DIR=/home/deploy/public_html
+
+# Pin the host key. Without this, any host key is accepted — see Security.
+SSH_HOST_FINGERPRINT=SHA256:your-fingerprint-here
+SSH_PORT=22
+SSH_BASE_DIR=/home/deploy
+SSH_ALLOW_EXEC=true
+SSH_ALLOWED_CMDS=npm,node,ls,cat,tail,touch
+
+# Runs the mysql client on the host over SSH. At least as dangerous as
+# SSH_ALLOW_EXEC — read the Security section before enabling.
+DB_USER=deploy_dbuser
+DB_PASSWORD=your-db-password
+DB_NAME=deploy_db
+
+# Off by default; required for file_delete.
+FTP_ALLOW_DELETE=true
+```
+
+See [`.env.example`](./.env.example) for every variable and Configuration below for what each does.
+
+### 3. Check it before you rely on it
+
+```bash
+npx -y ftp-ssh-mcp@0 --selftest
+```
+
+Run it from the directory holding your `.env`. It resolves configuration, registers tools and prints a one-line summary — **without opening a connection** — then exits. Use it to confirm the right capabilities came up before wiring the server into a client:
+
+```
+ftp-ssh-mcp 0.9.1 selftest OK. env=.env, transport=ftp, host=example.com,
+capabilities=[files, ssh, mysql], tools=[file_list, file_upload, ...]
+```
+
+It exits non-zero with a message naming the missing variable if configuration is incomplete. See Troubleshooting.
 
 ## Capabilities
 
@@ -133,6 +258,23 @@ path is not reachable here, and the only "fix" npm offers is a breaking downgrad
 of the SDK. CI runs `npm audit --omit=dev --audit-level=high`, which passes today
 while still failing the build on anything high or critical. The advisories will
 clear when the SDK updates its dependency.
+
+## Troubleshooting
+
+Start with `npx -y ftp-ssh-mcp@0 --selftest` from the directory holding your `.env`. It reproduces everything the server does at startup except connecting, so it separates a configuration problem from a network or credentials one.
+
+| Symptom | Cause |
+| --- | --- |
+| Server never starts, no error in the client | On Windows, `command` is `npx`. Use the `cmd /c` form — see Install. |
+| `No connection profile configured` | No host or user resolved. Set `REMOTE_HOST` and `REMOTE_USER`, or the `FTP_*`/`SSH_*` equivalents. |
+| `env=<none>` in the selftest output | The `.env` file was not found. It is resolved from the **working directory**, not from the config file's location or the package's. Set `MCP_ENV_FILE` to an absolute path if your client has no project directory. |
+| `<PREFIX>_PASSWORD is not set` even though `REMOTE_PASSWORD` is | The profile sets its own `*_USER`, so it is treated as a distinct identity and does not inherit the shared secret. Set its password explicitly — see Secret inheritance. |
+| A tool you expected is missing | Its capability is not enabled. `ssh_exec` needs `SSH_ALLOW_EXEC=true` **and** `SSH_BASE_DIR`; `mysql_query` needs `DB_USER` **and** `DB_NAME`, with `DB_USER` set explicitly. Check `capabilities=[…]` in the selftest line. |
+| Selftest says `capabilities=[]` | `MCP_CAPABILITIES` names capabilities that are not configured. It can only narrow what is already configured, never enable anything. |
+| Value from `.env` has a trailing comment in it | The parser has no inline-comment support. Put comments on their own line. |
+| Warning about an unverified host key | `SSH_HOST_FINGERPRINT` is unset. Expected until you pin it, and not a failure — see Security. |
+| Warning that path confinement is disabled | The transport's profile has no base directory and neither does the other one. Set `REMOTE_BASE_DIR`. |
+| Uploads land somewhere unexpected | Remote paths are relative to the profile's base directory, and each profile has its own. A per-call `transport` override resolves against *that* profile's base directory, not the default one. |
 
 ## Development
 
