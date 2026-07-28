@@ -50,6 +50,20 @@ describe("REMOTE_* fallback", () => {
     const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "/home/site/" });
     expect(cfg.ftp.baseDir).toBe("/home/site");
   });
+
+  // "/" is the correct base for an FTP account chrooted to its own home. It
+  // must survive normalization as a real value: collapsing it to "" reads as
+  // "unset", and the cross-profile fallback then lends this profile the other
+  // one's absolute path, which does not exist inside the chroot.
+  it("keeps a root base dir rather than collapsing it to empty", () => {
+    const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "/" });
+    expect(cfg.ftp.baseDir).toBe("/");
+  });
+
+  it("keeps a root base dir inherited from REMOTE_BASE_DIR", () => {
+    const cfg = resolveConfig({ ...ftpOnly, REMOTE_BASE_DIR: "/" });
+    expect(cfg.ftp.baseDir).toBe("/");
+  });
 });
 
 // An empty baseDir means NO path confinement (resolveRemotePath treats it as
@@ -99,6 +113,60 @@ describe("cross-profile base dir fallback", () => {
     const cfg = resolveConfig({ ...ftpOnly, SSH_BASE_DIR: "/home/u" });
     expect(cfg.ssh).toBe(null);
     expect(cfg.ftp.baseDir).toBe("");
+  });
+
+  // The regression this pairs with: an FTP account chrooted to its own home is
+  // configured with "/", and must NOT inherit SSH's view of the whole home.
+  it("treats a root base dir as configured, so it borrows nothing", () => {
+    const cfg = resolveConfig({ ...both, FTP_BASE_DIR: "/", SSH_BASE_DIR: "/home/u/site" });
+    expect(cfg.ftp.baseDir).toBe("/");
+    expect(cfg.ssh.baseDir).toBe("/home/u/site");
+  });
+});
+
+// A "~" reaches the file tools unexpanded: there is no shell in the FTP or SFTP
+// protocol, and an OpenSSH server resolves it to a directory literally named
+// "~" under the home dir. ssh_exec is fine (quoteRemotePath expands it), which
+// is what makes the failure confusing — so the config is refused outright.
+describe("tilde base dir", () => {
+  const both = { ...ftpOnly, ...sshOnly };
+
+  it.each([
+    ["~", "a lone tilde"],
+    ["~/", "a trailing-slash tilde"],
+    ["~/site", "a tilde-prefixed path"],
+  ])('rejects %s as an ftp base dir (%s)', (value) => {
+    const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: value });
+    expect(() => validateConfig(cfg)).toThrow(/FTP_BASE_DIR .*absolute path/s);
+  });
+
+  it("rejects a tilde ssh base dir and names SSH_BASE_DIR", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_BASE_DIR: "~/site" });
+    expect(() => validateConfig(cfg)).toThrow(/SSH_BASE_DIR .*absolute path/s);
+  });
+
+  it("names the borrowed variable when the tilde is inherited", () => {
+    // FTP borrows SSH's tilde, so both profiles are bad; FTP is reported first.
+    const cfg = resolveConfig({ ...both, SSH_BASE_DIR: "~/site" });
+    expect(cfg.ftp.baseDir).toBe("~/site");
+    expect(() => validateConfig(cfg)).toThrow(/FTP_BASE_DIR/);
+  });
+
+  // ssh_exec expands "~" correctly, so a config that never registers the file
+  // tools is not broken and must keep working.
+  it("allows a tilde when the file tools are not served", () => {
+    const cfg = resolveConfig({
+      ...sshOnly,
+      SSH_BASE_DIR: "~/site",
+      SSH_ALLOW_EXEC: "true",
+      MCP_CAPABILITIES: "ssh",
+    });
+    expect(() => validateConfig(cfg)).not.toThrow();
+  });
+
+  it("does not reject an absolute path containing a tilde later on", () => {
+    const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "/home/u/~backup" });
+    expect(() => validateConfig(cfg)).not.toThrow();
   });
 });
 

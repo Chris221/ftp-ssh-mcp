@@ -17,7 +17,26 @@ function flag(value) {
 
 function normalizeBase(raw) {
   if (!raw) return "";
-  return posix.normalize(String(raw).replace(/\\/g, "/")).replace(/\/+$/, "");
+  const normalized = posix.normalize(String(raw).replace(/\\/g, "/"));
+  // Keep a lone "/". Stripping it to "" makes an explicitly configured root
+  // indistinguishable from an unset one, and the cross-profile fallback below
+  // then lends this profile the OTHER profile's absolute path. That silently
+  // breaks the common cPanel shape: an FTP account chrooted to its own home has
+  // "/" as its real, correct base, and borrowing SSH's "/home/u/site" points
+  // every file call at a path that does not exist inside the chroot — where the
+  // server answers with an empty listing rather than an error.
+  if (normalized === "/") return "/";
+  return normalized.replace(/\/+$/, "");
+}
+
+/**
+ * Does this config serve the file tools?
+ *
+ * Mirrors the gate in selectCapabilities. A base directory only has to survive
+ * a bare protocol path when the file tools are actually registered.
+ */
+function servesFiles(config) {
+  return !config.requestedCapabilities || config.requestedCapabilities.includes("files");
 }
 
 /**
@@ -199,6 +218,29 @@ export function validateConfig(config) {
   if (!modes.includes(config.ftpSecurity)) {
     throw new Error(`Invalid FTP_SECURITY "${config.ftpSecurity}". Use one of: ${modes.join(", ")}.`);
   }
+
+  // Only a shell expands "~". ssh_exec gets that for free through
+  // quoteRemotePath, but the file tools hand the path straight to the FTP or
+  // SFTP protocol, where nothing expands it: an OpenSSH server resolves "~" to a
+  // directory literally NAMED "~" under the home directory, so every file call
+  // lands somewhere that does not exist. Half the tools quietly working is the
+  // confusing failure, so refuse the config by name instead of warning — a
+  // startup warning on stderr is exactly what goes unread.
+  if (servesFiles(config)) {
+    for (const [name, variable, profile] of [
+      ["ftp", "FTP_BASE_DIR", config.ftp],
+      ["sftp", "SSH_BASE_DIR", config.ssh],
+    ]) {
+      if (profile && /^~(\/|$)/.test(profile.baseDir)) {
+        throw new Error(
+          `The ${name} base directory is "${profile.baseDir}", but "~" is only expanded by a ` +
+            `shell and the file tools speak FTP/SFTP directly, where it names a literal "~" ` +
+            `directory. Set ${variable} (or REMOTE_BASE_DIR) to an absolute path, ` +
+            `such as "/home/<user>/<dir>".`
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -229,9 +271,7 @@ export function configWarnings(config) {
   // resolveRemotePath treats an empty baseDir as "no confinement", and the file
   // tools can be pointed at either profile per call, so any configured profile
   // without a base directory is an unconfined one. Say which transport it is.
-  const servesFiles =
-    !config.requestedCapabilities || config.requestedCapabilities.includes("files");
-  if (servesFiles) {
+  if (servesFiles(config)) {
     for (const [name, variable, profile] of [
       ["ftp", "FTP_BASE_DIR", config.ftp],
       ["sftp", "SSH_BASE_DIR", config.ssh],
