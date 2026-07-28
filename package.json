@@ -1,6 +1,6 @@
 {
   "name": "ftp-ssh-mcp",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "MCP server for working with a remote host over FTP/FTPS/SFTP, SSH, and MySQL.",
   "license": "MIT",
   "author": "Christopher Siena",
