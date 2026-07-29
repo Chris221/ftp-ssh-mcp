@@ -229,11 +229,13 @@ A `DB_USER` with no resolvable `DB_PASSWORD` is not treated as an error: the rem
 
 #### Tilde base directories
 
-`~` and `~/<dir>` are accepted and expanded to the account's own login directory: `realpath(".")` over SFTP, `PWD` over FTP. The lookup happens on connect, and only when there is a `~` to expand, so an absolute base directory costs nothing extra and the server still needs no network at startup.
+`~` and `~/<dir>` are accepted and expanded to the account's own login directory: `realpath(".")` over SFTP, `PWD` over FTP, for the `files` tools. That lookup happens on connect, and only when there is a `~` to expand, so an absolute base directory costs nothing extra and the server still needs no network at startup.
+
+`ssh_exec` and `mysql_query` resolve the same setting a different way: the raw `~` is handed to the remote login shell, which expands `$HOME` itself on every command, so there is no connect-time lookup on that path at all. The two mechanisms agree in practice, since they resolve against the same logged-in account — only *when* and *how* the expansion happens differ.
 
 Each profile expands its own value against its own login directory. That is deliberate: on cPanel the FTP account is often chrooted so that its `~` is `/`, while SSH sees the real `/home/<user>` — so a `~/public_html` shared through `REMOTE_BASE_DIR` lands in the right place on both.
 
-A **named** home, `~other/site`, is refused at startup. Only the account that logged in can be located, so a named home would be sent to the server as a literal path. Use an absolute path for that case.
+A **named** home, `~other/site`, is refused at startup — but only when the `files` tools are registered; a config that excludes them (e.g. `MCP_CAPABILITIES=ssh`) starts fine and only fails later, the first time `ssh_exec` or `mysql_query` tries to `cd` there. Only the account that logged in can be located, so a named home would be sent to the server as a literal path. Use an absolute path for that case.
 
 ## Security
 
