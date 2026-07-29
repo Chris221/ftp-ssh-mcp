@@ -72,7 +72,49 @@ export function selftestSummary(config, toolNames, envFile) {
   );
 }
 
+/** The text `--help` prints. Kept next to main so the two cannot drift. */
+export function helpText() {
+  return [
+    `ftp-ssh-mcp ${VERSION} — MCP server for a remote host over FTP/FTPS/SFTP, SSH and MySQL.`,
+    "",
+    "Usage:",
+    "  ftp-ssh-mcp [options]",
+    "",
+    "With no options it serves MCP over stdio. An MCP client normally launches it",
+    "that way itself; the options below are for checking a setup by hand.",
+    "",
+    "Options:",
+    "  --selftest     Resolve the configuration, print the tools it would register,",
+    "                 and exit. Opens no connection.",
+    "  -v, --version  Print the version and exit.",
+    "  -h, --help     Print this help and exit.",
+    "",
+    "Configuration comes from the environment, or from a .env file in the working",
+    "directory — set MCP_ENV_FILE to point somewhere else, which is what clients",
+    "with no project directory need. At minimum set REMOTE_HOST, REMOTE_USER and a",
+    "secret. Full variable reference:",
+    "  https://github.com/Chris221/ftp-ssh-mcp#variables",
+  ].join("\n");
+}
+
 export async function main(argv = process.argv, env = process.env, cwd = process.cwd()) {
+  // Answered before any configuration is touched. Someone reaching for --help is
+  // often someone whose configuration does not work yet, and every path below
+  // this throws "No connection profile configured" on an empty environment.
+  //
+  // These two write to stdout, unlike every other diagnostic in this file,
+  // because they return before the stdio transport is connected — there is no
+  // JSON-RPC channel to corrupt — and `ftp-ssh-mcp --version` has to be
+  // capturable in a script.
+  if (argv.includes("-h") || argv.includes("--help")) {
+    console.log(helpText());
+    return;
+  }
+  if (argv.includes("-v") || argv.includes("--version")) {
+    console.log(VERSION);
+    return;
+  }
+
   const envFile = loadEnvFile(env, cwd);
   const config = resolveConfig(env);
 

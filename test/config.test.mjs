@@ -540,6 +540,51 @@ describe("configWarnings", () => {
     ]);
   });
 
+  // A relative base dir reaches the transport as a relative path, which the
+  // SERVER resolves against the session's working directory. That usually lands
+  // where the user meant, so it fails quietly rather than loudly — hence a
+  // warning. The likeliest way to write one is a missing leading slash.
+  const relative = (name, variable, value) =>
+    `The ${name} base directory "${value}" is relative, so the server resolves it against ` +
+    `whatever directory the session starts in rather than a root pinned here. Set ` +
+    `${variable} (or REMOTE_BASE_DIR) to "~/<dir>" for the account's own home, or to an ` +
+    `absolute path.`;
+
+  it("warns about a relative base directory", () => {
+    const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "./site" });
+    // normalizeBase has already stripped the "./" by the time it is reported.
+    expect(cfg.ftp.baseDir).toBe("site");
+    expect(configWarnings(cfg)).toStrictEqual([relative("ftp", "FTP_BASE_DIR", "site")]);
+  });
+
+  it("warns about a base directory missing its leading slash", () => {
+    const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "home/u/site" });
+    expect(configWarnings(cfg)).toStrictEqual([
+      relative("ftp", "FTP_BASE_DIR", "home/u/site"),
+    ]);
+  });
+
+  it("does not warn about an absolute or tilde base directory", () => {
+    for (const value of ["/home/u/site", "/", "~", "~/site"]) {
+      const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: value });
+      expect(configWarnings(cfg)).toStrictEqual([]);
+    }
+  });
+
+  it("warns per profile, naming each transport's own variable", () => {
+    const cfg = resolveConfig({
+      ...ftpOnly,
+      ...sshOnly,
+      FTP_BASE_DIR: "site",
+      SSH_BASE_DIR: "other",
+      SSH_HOST_FINGERPRINT: pinned,
+    });
+    expect(configWarnings(cfg)).toStrictEqual([
+      relative("ftp", "FTP_BASE_DIR", "site"),
+      relative("sftp", "SSH_BASE_DIR", "other"),
+    ]);
+  });
+
   it("does not warn about confinement when the files capability is not selected", () => {
     // No file tools are registered, so there is nothing unconfined to warn
     // about — and an unactionable warning trains people to ignore the rest.

@@ -160,11 +160,21 @@ npx -y ftp-ssh-mcp@0 --selftest
 Run it from the directory holding your `.env`. It resolves configuration, registers tools and prints a one-line summary — **without opening a connection** — then exits. Use it to confirm the right capabilities came up before wiring the server into a client:
 
 ```
-ftp-ssh-mcp 0.9.1 selftest OK. env=.env, transport=ftp, host=example.com,
+ftp-ssh-mcp 0.9.2 selftest OK. env=.env, transport=ftp, host=example.com,
 capabilities=[files, ssh, mysql], tools=[file_list, file_upload, ...]
 ```
 
 It exits non-zero with a message naming the missing variable if configuration is incomplete. See Troubleshooting.
+
+### Options
+
+| Option | Does |
+| --- | --- |
+| `--selftest` | Resolve the configuration, print the tools it would register, and exit. Opens no connection. |
+| `-v`, `--version` | Print the version and exit. |
+| `-h`, `--help` | Print usage and exit. |
+
+`--version` and `--help` answer before any configuration is read, so they work on a machine with nothing set up yet. Both print to stdout; everything else the server says goes to stderr, because stdout is the JSON-RPC channel.
 
 ## Capabilities
 
@@ -284,6 +294,7 @@ Start with `npx -y ftp-ssh-mcp@0 --selftest` from the directory holding your `.e
 | Value from `.env` has a trailing comment in it | The parser has no inline-comment support. Put comments on their own line. |
 | Warning about an unverified host key | `SSH_HOST_FINGERPRINT` is unset. Expected until you pin it, and not a failure — see Security. |
 | Warning that path confinement is disabled | The transport's profile has no base directory and neither does the other one. Set `REMOTE_BASE_DIR`. |
+| Warning that the base directory is relative | The value has no leading `/` and is not `~`-relative — often a dropped leading slash, as in `home/u/site`. It still works, because the server resolves it against wherever the session starts, but the root is then the server's choice rather than one pinned at connect. Write `~/site` for the account's own home, or an absolute path. |
 | Uploads land somewhere unexpected | Remote paths are relative to the profile's base directory, and each profile has its own. A per-call `transport` override resolves against *that* profile's base directory, not the default one. |
 | A `~` base directory resolves somewhere unexpected | `~` is the **login** directory the server reports, not `/home/<user>` by definition. A chrooted FTP account reports `/`, so `~/public_html` is `/public_html` there while SSH resolves the same value to `/home/<user>/public_html`. Both are correct for their account; set that profile's own `*_BASE_DIR` to an absolute path if you need to override it. |
 

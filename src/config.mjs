@@ -6,7 +6,7 @@
 import path from "node:path";
 
 import { ALL, selectCapabilities } from "./capabilities/index.mjs";
-import { expandHome, normalizeFingerprint } from "./guards.mjs";
+import { expandHome, isHomeRelative, normalizeFingerprint } from "./guards.mjs";
 
 const posix = path.posix;
 
@@ -286,6 +286,26 @@ export function configWarnings(config) {
           `No base directory resolved for the ${name} transport, so path confinement is ` +
             `disabled there: the file tools can reach any path the account can. Set ` +
             `${variable} (or REMOTE_BASE_DIR).`
+        );
+        continue;
+      }
+      // A base that is neither absolute nor "~"-relative still reaches the
+      // transport — as a relative path, which the SERVER resolves against the
+      // session's working directory. That is usually the login directory, so
+      // "./site" often lands exactly where "~/site" would and looks correct;
+      // this is a warning rather than an error for that reason. It is not the
+      // same guarantee, though: the root becomes the server's opinion instead of
+      // a value pinned at connect, and the ftp adapter moves the working
+      // directory during an upload (see ensureDir in transports/ftp.mjs) and
+      // swallows a failed restore, which would relocate every later relative
+      // path in that session. A missing leading slash is the likeliest way to
+      // write one by accident, and nothing else in the config would mention it.
+      if (profile && !profile.baseDir.startsWith("/") && !isHomeRelative(profile.baseDir)) {
+        warnings.push(
+          `The ${name} base directory "${profile.baseDir}" is relative, so the server ` +
+            `resolves it against whatever directory the session starts in rather than a root ` +
+            `pinned here. Set ${variable} (or REMOTE_BASE_DIR) to "~/<dir>" for the account's ` +
+            `own home, or to an absolute path.`
         );
       }
     }

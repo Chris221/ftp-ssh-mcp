@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveConfig } from "../src/config.mjs";
-import { createServer, selftestSummary, main } from "../src/server.mjs";
+import { createServer, selftestSummary, main, VERSION } from "../src/server.mjs";
 
 const ftpOnly = { FTP_HOST: "h", FTP_USER: "u", FTP_PASSWORD: "p" };
 
@@ -114,5 +114,64 @@ describe("main", () => {
       stderr.mockRestore();
       stdout.mockRestore();
     }
+  });
+});
+
+// --version and --help answer before any configuration is read. Someone
+// reaching for --help is very often someone whose configuration does not work
+// yet, so an EMPTY env is the case that matters: every other path through
+// main() throws "No connection profile configured" on it.
+//
+// They print to stdout, unlike every other diagnostic here, because both return
+// before the stdio transport is connected — there is no JSON-RPC channel to
+// corrupt — and `VERSION=$(ftp-ssh-mcp --version)` has to work.
+describe("main version and help flags", () => {
+  let dir;
+  let stdout;
+  let stderr;
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "server-flags-"));
+    stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+    stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    stdout.mockRestore();
+    stderr.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const output = () => stdout.mock.calls.map((call) => String(call[0])).join("\n");
+
+  it.each(["--version", "-v"])("prints the bare version for %s, with no config", async (flag) => {
+    await main(["node", "bin/ftp-ssh-mcp.mjs", flag], {}, dir);
+    expect(output()).toBe(VERSION);
+    expect(stderr).not.toHaveBeenCalled();
+  });
+
+  it.each(["--help", "-h"])("prints usage for %s, with no config", async (flag) => {
+    await main(["node", "bin/ftp-ssh-mcp.mjs", flag], {}, dir);
+
+    const text = output();
+    expect(text).toContain("Usage:");
+    // Every flag the server accepts must be discoverable from --help.
+    expect(text).toContain("--selftest");
+    expect(text).toContain("--version");
+    expect(text).toContain("--help");
+    // Where configuration comes from is the question --help is usually asked.
+    expect(text).toContain("MCP_ENV_FILE");
+    expect(stderr).not.toHaveBeenCalled();
+  });
+
+  it("prefers help over selftest when both are passed", async () => {
+    await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest", "--help"], {}, dir);
+    expect(output()).toContain("Usage:");
+  });
+
+  it("still refuses to start with no config when no flag is passed", async () => {
+    await expect(main(["node", "bin/ftp-ssh-mcp.mjs"], {}, dir)).rejects.toThrow(
+      /No connection profile configured/
+    );
   });
 });
