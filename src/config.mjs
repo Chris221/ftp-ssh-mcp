@@ -15,6 +15,12 @@ function flag(value) {
   return value === "true";
 }
 
+// Node clamps any timer delay above 2^31-1 ms to ONE millisecond (with only a
+// stderr TimeoutOverflowWarning an MCP-launched process makes invisible), so a
+// timeout beyond this — "effectively no timeout" as a user would mean it —
+// would make every connect and every command fail instantly. ~24.8 days.
+const MAX_TIMER_MS = 2147483647;
+
 /**
  * Parse an integer setting; unset or blank means the default.
  *
@@ -101,7 +107,7 @@ function resolveFtp(env) {
     password: r.secret("PASSWORD"),
     baseDir: normalizeBase(r.open("BASE_DIR")),
     tlsRejectUnauthorized: env.FTP_TLS_REJECT_UNAUTHORIZED !== "false",
-    timeout: integer(env, "FTP_TIMEOUT_MS", 30000),
+    timeout: integer(env, "FTP_TIMEOUT_MS", 30000, MAX_TIMER_MS),
   };
 }
 
@@ -129,7 +135,7 @@ function resolveSsh(env) {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
-    timeout: integer(env, "SSH_TIMEOUT_MS", 120000),
+    timeout: integer(env, "SSH_TIMEOUT_MS", 120000, MAX_TIMER_MS),
     maxOutputBytes: integer(env, "SSH_MAX_OUTPUT", 100000),
   };
 }

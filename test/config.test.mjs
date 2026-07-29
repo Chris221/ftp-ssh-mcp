@@ -51,6 +51,24 @@ describe("numeric variables", () => {
     expect(() => resolveConfig({ ...sshOnly, SSH_MAX_OUTPUT: "-5" })).toThrow(/SSH_MAX_OUTPUT/);
   });
 
+  it("rejects a timeout beyond Node's 32-bit timer range", () => {
+    // setTimeout clamps any delay above 2147483647 ms to 1 ms (with only a
+    // stderr TimeoutOverflowWarning an MCP-launched process makes invisible),
+    // so "effectively no timeout" values like these would make every connect
+    // and every command fail instantly — the opposite of what was configured.
+    expect(() => resolveConfig({ ...sshOnly, SSH_TIMEOUT_MS: "3000000000" })).toThrow(
+      /SSH_TIMEOUT_MS/
+    );
+    expect(() => resolveConfig({ ...ftpOnly, FTP_TIMEOUT_MS: "9999999999" })).toThrow(
+      /FTP_TIMEOUT_MS/
+    );
+  });
+
+  it("accepts the largest representable timeout", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_TIMEOUT_MS: "2147483647" });
+    expect(cfg.ssh.timeout).toBe(2147483647);
+  });
+
   it("accepts explicit valid values", () => {
     const cfg = resolveConfig({
       ...ftpOnly,
