@@ -140,3 +140,53 @@ describe("sftp connection failures never write to stdout", () => {
     expect(failure.message).toMatch(/ECONNREFUSED/);
   });
 });
+
+// A "~" base dir is expanded from whatever the server says realpath(".") is, so
+// the fixture reports a login directory that is NOT "/" — otherwise the test
+// would pass even if the tilde were simply dropped.
+describe("tilde base dir", () => {
+  let tildeServer;
+  let tildeConfig;
+
+  const envFor = (port, baseDir) => ({
+    SSH_HOST: "127.0.0.1",
+    SSH_PORT: String(port),
+    SSH_USER: "tester",
+    SSH_PASSWORD: "secret",
+    FILE_TRANSPORT: "sftp",
+    SSH_BASE_DIR: baseDir,
+  });
+
+  beforeEach(async () => {
+    mkdirSync(path.join(remoteRoot, "home", "tester", "site"), { recursive: true });
+    tildeServer = await startSftpServer({ root: remoteRoot, home: "/home/tester" });
+    tildeConfig = resolveConfig(envFor(tildeServer.port, "~/site"));
+  });
+
+  afterEach(async () => {
+    await tildeServer.close();
+  });
+
+  it("hands the expanded base dir to the callback", async () => {
+    const seen = await withClient(tildeConfig, (_client, baseDir) => baseDir);
+    expect(seen).toBe("/home/tester/site");
+  });
+
+  it("expands a lone tilde to the login directory", async () => {
+    const config = resolveConfig(envFor(tildeServer.port, "~"));
+    const seen = await withClient(config, (_client, baseDir) => baseDir);
+    expect(seen).toBe("/home/tester");
+  });
+
+  it("reaches the expanded directory on the wire", async () => {
+    writeFileSync(path.join(remoteRoot, "home", "tester", "site", "a.txt"), "12345");
+    const entries = await withClient(tildeConfig, (client, baseDir) => client.list(baseDir));
+    expect(entries.map((e) => e.name)).toStrictEqual(["a.txt"]);
+  });
+
+  it("passes an absolute base dir through untouched", async () => {
+    const config = resolveConfig(envFor(tildeServer.port, "/home/tester/site"));
+    const seen = await withClient(config, (_client, baseDir) => baseDir);
+    expect(seen).toBe("/home/tester/site");
+  });
+});

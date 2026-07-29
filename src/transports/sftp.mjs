@@ -2,6 +2,7 @@
 import path from "node:path";
 
 import { attachKeyboardInteractive, buildAuthOptions } from "../ssh.mjs";
+import { effectiveBaseDir } from "./base-dir.mjs";
 
 const posix = path.posix;
 
@@ -75,7 +76,14 @@ export async function withSftp(profile, fn) {
     throw hostKeyError() || err;
   }
   try {
-    return await fn(sftpAdapter(sftp));
+    // The base directory is resolved AFTER connecting because a "~" is expanded
+    // from realpath("."), the SFTP way to ask where the session landed. An
+    // absolute base skips the round trip entirely. Inside the try, so a failed
+    // lookup still closes the connection.
+    const baseDir = await effectiveBaseDir(profile.baseDir, "SSH_BASE_DIR", () =>
+      sftp.realPath(".")
+    );
+    return await fn(sftpAdapter(sftp), baseDir);
   } finally {
     try {
       await sftp.end();

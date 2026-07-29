@@ -203,3 +203,40 @@ describe("safety clamps at the wire", () => {
     expect(result.error).toMatch(/must not contain '\.\.' segments/);
   });
 });
+
+// The FTP login directory is whatever PWD reports after login. ftp-srv takes it
+// as `cwd` on the login resolve, so the fixture can report something other than
+// "/" and prove the client actually asked.
+describe("tilde base dir", () => {
+  let tildeServer;
+  let tildeConfig;
+
+  const envFor = (port, baseDir) => ({ ...baseEnv(port), FTP_BASE_DIR: baseDir });
+
+  beforeEach(async () => {
+    mkdirSync(path.join(remoteRoot, "home", "tester", "site"), { recursive: true });
+    tildeServer = await startFtpServer({ root: remoteRoot, cwd: "/home/tester" });
+    tildeConfig = resolveConfig(envFor(tildeServer.port, "~/site"));
+  });
+
+  afterEach(async () => {
+    await tildeServer.close();
+  });
+
+  it("hands the expanded base dir to the callback", async () => {
+    const seen = await withClient(tildeConfig, (_client, baseDir) => baseDir);
+    expect(seen).toBe("/home/tester/site");
+  });
+
+  it("reaches the expanded directory on the wire", async () => {
+    writeFileSync(path.join(remoteRoot, "home", "tester", "site", "a.txt"), "12345");
+    const entries = await withClient(tildeConfig, (client, baseDir) => client.list(baseDir));
+    expect(entries.map((e) => e.name)).toStrictEqual(["a.txt"]);
+  });
+
+  it("passes an absolute base dir through untouched", async () => {
+    const config = resolveConfig(envFor(tildeServer.port, "/home/tester/site"));
+    const seen = await withClient(config, (_client, baseDir) => baseDir);
+    expect(seen).toBe("/home/tester/site");
+  });
+});

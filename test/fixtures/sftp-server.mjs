@@ -44,6 +44,10 @@ export async function startSftpServer({
   password = "secret",
   auth = "password",
   clientKey = null,
+  // What realpath(".") answers — the account's login directory. Defaults to "/"
+  // (the shape a chrooted account sees); set it to prove a client expanded "~"
+  // from the server's answer rather than assuming a root.
+  home = "/",
 } = {}) {
   const port = await freePort();
   const handles = new Map();
@@ -149,7 +153,7 @@ export async function startSftpServer({
             const readHandle = (handle) => handles.get(handle.readUInt32BE(0));
 
             sftp.on("REALPATH", (reqid, given) => {
-              const target = given === "." || given === "" ? "/" : path.posix.normalize(given);
+              const target = given === "." || given === "" ? home : path.posix.normalize(given);
               sftp.name(reqid, [{ filename: target, longname: target, attrs: {} }]);
             });
 

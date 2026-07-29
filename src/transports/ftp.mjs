@@ -1,6 +1,8 @@
 // basic-ftp adapter. Normalized to the shape in ./index.mjs.
 import path from "node:path";
 
+import { effectiveBaseDir } from "./base-dir.mjs";
+
 const posix = path.posix;
 
 export function ftpAdapter(client) {
@@ -59,7 +61,11 @@ export async function withFtp(profile, fn) {
       secure: profile.secure,
       secureOptions: { rejectUnauthorized: profile.tlsRejectUnauthorized },
     });
-    return await fn(ftpAdapter(client));
+    // A "~" base is expanded from PWD, which after login is the account's own
+    // directory — "/" for a chrooted account, the real home otherwise. An
+    // absolute base skips the round trip entirely.
+    const baseDir = await effectiveBaseDir(profile.baseDir, "FTP_BASE_DIR", () => client.pwd());
+    return await fn(ftpAdapter(client), baseDir);
   } finally {
     client.close();
   }
