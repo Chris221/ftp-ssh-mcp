@@ -96,6 +96,45 @@ describe("numeric variables", () => {
   });
 });
 
+// SSH_ALLOWED_CMDS accepts @preset tokens alongside literal command names, so
+// a non-Node stack does not have to retype the inspection basics by hand. See
+// docs/superpowers/specs/2026-07-29-allowed-cmds-presets-design.md.
+describe("SSH_ALLOWED_CMDS presets", () => {
+  it("defaults to @basic,@node,@mysql — the exact commands of the old literal default", () => {
+    const cfg = resolveConfig(sshOnly);
+    expect([...cfg.ssh.allowedCommands].sort()).toStrictEqual(
+      ["npm", "node", "mysql", "mysqldump", "touch", "ls", "cat", "tail", "head", "df", "du", "pwd"].sort()
+    );
+  });
+
+  it("expands a preset mixed with literal commands, preserving order", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_ALLOWED_CMDS: "@php,rsync" });
+    expect(cfg.ssh.allowedCommands).toStrictEqual(["php", "composer", "rsync"]);
+  });
+
+  it("expands @basic to the inspection set", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_ALLOWED_CMDS: "@basic" });
+    expect(cfg.ssh.allowedCommands).toStrictEqual([
+      "ls", "cat", "tail", "head", "df", "du", "pwd", "touch",
+    ]);
+  });
+
+  it("deduplicates overlap between presets and literals", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_ALLOWED_CMDS: "@node,npm,@node" });
+    expect(cfg.ssh.allowedCommands).toStrictEqual(["node", "npm"]);
+  });
+
+  it("rejects an unknown @preset at startup, listing the valid ones", () => {
+    expect(() => resolveConfig({ ...sshOnly, SSH_ALLOWED_CMDS: "@basic,@rust" })).toThrow(/@rust/);
+    expect(() => resolveConfig({ ...sshOnly, SSH_ALLOWED_CMDS: "@rust" })).toThrow(/@basic/);
+  });
+
+  it("still accepts a purely literal list", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_ALLOWED_CMDS: "echo" });
+    expect(cfg.ssh.allowedCommands).toStrictEqual(["echo"]);
+  });
+});
+
 describe("REMOTE_* fallback", () => {
   it("inherits host from REMOTE_HOST", () => {
     const cfg = resolveConfig({ REMOTE_HOST: "shared", FTP_USER: "u", FTP_PASSWORD: "p" });

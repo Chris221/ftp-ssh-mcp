@@ -137,7 +137,7 @@ SSH_HOST_FINGERPRINT=SHA256:your-fingerprint-here
 SSH_PORT=22
 SSH_BASE_DIR=/home/deploy
 SSH_ALLOW_EXEC=true
-SSH_ALLOWED_CMDS=npm,node,ls,cat,tail,touch
+SSH_ALLOWED_CMDS=@basic,@node
 
 # Runs the mysql client on the host over SSH. At least as dangerous as
 # SSH_ALLOW_EXEC — read the Security section before enabling.
@@ -228,7 +228,7 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `SSH_ACTIVATE` | — | Remote path to a script (e.g. a Node virtualenv's `activate`) sourced before every command. Missing file is non-fatal — the command still runs. |
 | `SSH_TIMEOUT_MS` | `120000` | Connection and per-command timeout. |
 | `SSH_MAX_OUTPUT` | `100000` | Combined stdout+stderr byte cap per command; output beyond this is truncated, not buffered. |
-| `SSH_ALLOWED_CMDS` | `npm,node,mysql,mysqldump,touch,ls,cat,tail,head,df,du,pwd` | Comma-separated allowlist of program names `ssh_exec` may invoke. |
+| `SSH_ALLOWED_CMDS` | `@basic,@node,@mysql` | Comma-separated allowlist of program names `ssh_exec` may invoke. Entries starting with `@` are presets — see the table below. The default expands to the same twelve commands the old literal default listed. |
 | `DB_USER` | — | Must be set explicitly. Unlike other non-secrets it does **not** inherit `REMOTE_USER`, so `DB_NAME` alone cannot activate `mysql_query`. |
 | `DB_PASSWORD` | see secret inheritance | See below — not required. |
 | `DB_NAME` | — | Default database for `mysql_query`; can be overridden per call. |
@@ -237,6 +237,17 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `FTP_READONLY` | `false` | When `true`, blocks every write across file transfer, `ssh_exec` and `mysql_query` (uploads, deletes, mkdir, shell commands and SQL alike). |
 | `FTP_ALLOW_DELETE` | `false` | Must be `true` for `file_delete` to work. |
 | `SSH_ALLOW_EXEC` | `false` | Must be `true` for `ssh_exec` to be registered at all. |
+
+#### Command presets
+
+`SSH_ALLOWED_CMDS` entries starting with `@` expand to a named group; presets and literal command names mix freely (`SSH_ALLOWED_CMDS=@basic,@php,rsync`). An unknown preset name fails startup. Presets are named after stacks, not hosting products, and expand as follows:
+
+| Preset | Commands |
+| --- | --- |
+| `@basic` | `ls`, `cat`, `tail`, `head`, `df`, `du`, `pwd`, `touch` |
+| `@node` | `node`, `npm` |
+| `@php` | `php`, `composer` |
+| `@mysql` | `mysql`, `mysqldump` |
 
 A `DB_USER` with no resolvable `DB_PASSWORD` is not treated as an error: the remote `mysql` client can legitimately get credentials from `~/.my.cnf` or a trusted local socket instead of a password on the connection. The server prints a warning to stderr at startup rather than refusing to run, and if a query then fails to authenticate, `mysql_query`'s error message names `DB_PASSWORD` again so the cause is visible from inside the MCP client, not just in a startup log you may not have seen.
 
