@@ -180,7 +180,7 @@ describe("safety clamps", () => {
     const config = resolveConfig({ ...ftpOnly });
     const { run } = buildTools(config);
     const result = await run("file_delete", { remotePath: "a.txt" });
-    expect(result.error).toMatch(/FTP_ALLOW_DELETE/);
+    expect(result.error).toMatch(/REMOTE_ALLOW_DELETE/);
   });
 
   it("lets file_delete past the clamp when FTP_ALLOW_DELETE=true and read-only is off", async () => {
@@ -238,7 +238,7 @@ describe("safety clamps", () => {
     const sql = await run("mysql_query", { sql: "SELECT 1" });
     const exec = await run("ssh_exec", { command: "ls" });
 
-    expect(sql.error).toBe("Server is in read-only mode (FTP_READONLY=true).");
+    expect(sql.error).toBe("Server is in read-only mode (REMOTE_READONLY=true).");
     expect(exec.error).toBe(sql.error);
   });
 

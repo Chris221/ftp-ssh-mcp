@@ -96,6 +96,51 @@ describe("numeric variables", () => {
   });
 });
 
+// The write clamps gate every capability — file transfer, ssh_exec and
+// mysql_query alike — so 1.0 names them REMOTE_READONLY / REMOTE_ALLOW_DELETE
+// like every other shared setting. The pre-1.0 FTP_* spellings stay as
+// working aliases; a set 1.0 name wins.
+describe("REMOTE_READONLY / REMOTE_ALLOW_DELETE", () => {
+  it("reads the 1.0 names", () => {
+    const cfg = resolveConfig({ ...ftpOnly, REMOTE_READONLY: "true", REMOTE_ALLOW_DELETE: "true" });
+    expect(cfg.files.readOnly).toBe(true);
+    expect(cfg.files.allowDelete).toBe(true);
+  });
+
+  it("keeps the pre-1.0 FTP_* aliases working", () => {
+    const cfg = resolveConfig({ ...ftpOnly, FTP_READONLY: "true", FTP_ALLOW_DELETE: "true" });
+    expect(cfg.files.readOnly).toBe(true);
+    expect(cfg.files.allowDelete).toBe(true);
+  });
+
+  it("lets a set 1.0 name win over the alias", () => {
+    const cfg = resolveConfig({ ...ftpOnly, REMOTE_READONLY: "false", FTP_READONLY: "true" });
+    expect(cfg.files.readOnly).toBe(false);
+  });
+
+  it("warns once when only the pre-1.0 names are used", () => {
+    const cfg = resolveConfig({
+      ...ftpOnly,
+      FTP_BASE_DIR: "/site",
+      FTP_READONLY: "true",
+      FTP_ALLOW_DELETE: "true",
+    });
+    expect(configWarnings(cfg)).toStrictEqual([
+      "FTP_READONLY and FTP_ALLOW_DELETE are pre-1.0 names: these flags gate ssh_exec and " +
+        "mysql_query too, not just FTP, so they are now REMOTE_READONLY and " +
+        "REMOTE_ALLOW_DELETE. The old names keep working; renaming them silences this.",
+    ]);
+  });
+
+  it("does not warn for the 1.0 names, or when a 1.0 name sits beside its alias", () => {
+    const quiet = { ...ftpOnly, FTP_BASE_DIR: "/site" };
+    expect(configWarnings(resolveConfig({ ...quiet, REMOTE_READONLY: "true" }))).toStrictEqual([]);
+    expect(
+      configWarnings(resolveConfig({ ...quiet, REMOTE_READONLY: "true", FTP_READONLY: "true" }))
+    ).toStrictEqual([]);
+  });
+});
+
 // SSH_ALLOWED_CMDS accepts @preset tokens alongside literal command names, so
 // a non-Node stack does not have to retype the inspection basics by hand. See
 // docs/superpowers/specs/2026-07-29-allowed-cmds-presets-design.md.

@@ -228,8 +228,17 @@ export function resolveConfig(env = process.env) {
     db: resolveDb(env),
     files: {
       transport,
-      readOnly: flag(env.FTP_READONLY),
-      allowDelete: flag(env.FTP_ALLOW_DELETE),
+      // The write clamps gate EVERY capability — file transfer, ssh_exec and
+      // mysql_query alike — so 1.0 names them REMOTE_* like every other
+      // shared setting. The pre-1.0 FTP_* spellings stay as working aliases;
+      // a set (non-empty) 1.0 name wins via the short-circuit.
+      readOnly: flag(env.REMOTE_READONLY || env.FTP_READONLY),
+      allowDelete: flag(env.REMOTE_ALLOW_DELETE || env.FTP_ALLOW_DELETE),
+      // For configWarnings: which flags arrived ONLY under the old spelling.
+      legacyFlags: [
+        ...(env.FTP_READONLY && !env.REMOTE_READONLY ? ["FTP_READONLY"] : []),
+        ...(env.FTP_ALLOW_DELETE && !env.REMOTE_ALLOW_DELETE ? ["FTP_ALLOW_DELETE"] : []),
+      ],
     },
     // basic-ftp's TLS mode. Replaces the old FTP_PROTOCOL, which conflated the
     // TLS setting with transport selection by also accepting "sftp".
@@ -396,6 +405,19 @@ export function configWarnings(config, { quiet = false } = {}) {
         );
       }
     }
+  }
+
+  // Informational nudge toward the 1.0 flag names. The old spellings keep
+  // working forever-ish; the point is that REMOTE_* says what the flags do —
+  // they clamp ssh_exec and mysql_query too, which "FTP_" actively obscures.
+  if (config.files.legacyFlags.length > 0) {
+    const names = config.files.legacyFlags.join(" and ");
+    const verb = config.files.legacyFlags.length > 1 ? "are pre-1.0 names" : "is a pre-1.0 name";
+    warn(
+      `${names} ${verb}: these flags gate ssh_exec and mysql_query too, not just FTP, ` +
+        "so they are now REMOTE_READONLY and REMOTE_ALLOW_DELETE. The old names keep " +
+        "working; renaming them silences this."
+    );
   }
 
   // DB_USER is the mysql capability's deliberate opt-in (it does not inherit

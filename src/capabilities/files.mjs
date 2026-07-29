@@ -42,13 +42,13 @@ export default {
 
     const assertWritable = () => {
       if (config.files.readOnly) {
-        throw new Error("Server is in read-only mode (FTP_READONLY=true).");
+        throw new Error("Server is in read-only mode (REMOTE_READONLY=true).");
       }
     };
     const assertDeletable = () => {
       assertWritable();
       if (!config.files.allowDelete) {
-        throw new Error("Deletion is disabled. Set FTP_ALLOW_DELETE=true to enable it.");
+        throw new Error("Deletion is disabled. Set REMOTE_ALLOW_DELETE=true to enable it.");
       }
     };
 
@@ -181,7 +181,7 @@ export default {
         title: "Delete a remote file or directory",
         description:
           "Delete a file, or recursively delete a directory, on the remote host. " +
-          "Disabled unless FTP_ALLOW_DELETE=true.",
+          "Disabled unless REMOTE_ALLOW_DELETE=true.",
         inputSchema: {
           remotePath: z.string().describe("Remote path to delete."),
           isDirectory: z.boolean().default(false).describe("Set true to recursively remove a directory."),

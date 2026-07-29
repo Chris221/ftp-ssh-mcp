@@ -146,7 +146,7 @@ DB_PASSWORD=your-db-password
 DB_NAME=deploy_db
 
 # Off by default; required for file_delete.
-FTP_ALLOW_DELETE=true
+REMOTE_ALLOW_DELETE=true
 ```
 
 See [`.env.example`](./.env.example) for every variable and Configuration below for what each does.
@@ -185,9 +185,9 @@ A capability's tools are only registered when it is both configured (its require
 
 | Capability | Tools | Enabled when |
 | --- | --- | --- |
-| `files` | `file_list`, `file_upload`, `file_upload_dir`, `file_download`, `file_mkdir`, `file_delete` | An FTP or SSH profile is configured. `file_delete` additionally requires `FTP_ALLOW_DELETE=true`; all writes require `FTP_READONLY` to be unset or `false`. |
+| `files` | `file_list`, `file_upload`, `file_upload_dir`, `file_download`, `file_mkdir`, `file_delete` | An FTP or SSH profile is configured. `file_delete` additionally requires `REMOTE_ALLOW_DELETE=true`; all writes require `REMOTE_READONLY` to be unset or `false`. |
 | `ssh` | `ssh_exec` | An SSH profile is configured with `SSH_BASE_DIR` set and `SSH_ALLOW_EXEC=true`. |
-| `mysql` | `mysql_query` | An SSH profile is configured, and `DB_USER` and `DB_NAME` are both set. `DB_USER` must be set explicitly — it does not inherit `REMOTE_USER` — so the capability cannot switch itself on. Blocked entirely by `FTP_READONLY=true`. `DB_PASSWORD` is not required — see below. |
+| `mysql` | `mysql_query` | An SSH profile is configured, and `DB_USER` and `DB_NAME` are both set. `DB_USER` must be set explicitly — it does not inherit `REMOTE_USER` — so the capability cannot switch itself on. Blocked entirely by `REMOTE_READONLY=true`. `DB_PASSWORD` is not required — see below. |
 
 The `files` tools are transport-neutral: they work over whichever transport `FILE_TRANSPORT` selects (`ftp` or `sftp`), and each call can override the transport for that one call if both profiles are configured. `mysql_query` is a convenience wrapper, not a database driver — it pipes SQL over SSH to the `mysql` client already installed on the host (`mysql --user=... --database=... --table`, with the SQL sent on stdin), then parses the CLI's table output. There is no connection pooling and no parameterised-query support. It exists because most shared hosts will not accept a database connection from outside the host itself; if you need a real client-side database integration, use one instead of `mysql_query`. **Enable it with the same caution as `ssh_exec`, not less** — see Security.
 
@@ -234,8 +234,8 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `DB_NAME` | — | Default database for `mysql_query`; can be overridden per call. |
 | `FILE_TRANSPORT` | `ftp` if an FTP profile is configured, else `sftp` if an SSH profile is configured, else `ftp` | Which profile serves the `files` tools. |
 | `MCP_CAPABILITIES` | all configured capabilities | Comma-separated allowlist restricting which capabilities register tools (`files`, `ssh`, `mysql`). An unrecognised name fails startup. |
-| `FTP_READONLY` | `false` | When `true`, blocks every write across file transfer, `ssh_exec` and `mysql_query` (uploads, deletes, mkdir, shell commands and SQL alike). |
-| `FTP_ALLOW_DELETE` | `false` | Must be `true` for `file_delete` to work. |
+| `REMOTE_READONLY` | `false` | When `true`, blocks every write across file transfer, `ssh_exec` and `mysql_query` (uploads, deletes, mkdir, shell commands and SQL alike). `FTP_READONLY`, the pre-1.0 name, still works; a set `REMOTE_READONLY` wins. |
+| `REMOTE_ALLOW_DELETE` | `false` | Must be `true` for `file_delete` to work. `FTP_ALLOW_DELETE`, the pre-1.0 name, still works; a set `REMOTE_ALLOW_DELETE` wins. |
 | `SSH_ALLOW_EXEC` | `false` | Must be `true` for `ssh_exec` to be registered at all. |
 
 #### Command presets
@@ -266,7 +266,7 @@ A **named** home, `~other/site`, is refused at startup — but only when the `fi
 - `ssh_exec` only runs a program named in `SSH_ALLOWED_CMDS`, checked against the first whitespace-delimited token of the command — not a policy over arguments.
 - Before that check, the command is rejected outright if it contains any of a fourteen-character shell metacharacter class (`; & | ` `$` `(` `)` `{` `}` `<` `>` `\` and newline/carriage return), so a call can only ever be a single plain invocation — no chaining, redirection, or substitution.
 - Remote paths passed to the `files` tools and to `SSH_BASE_DIR`/`FTP_BASE_DIR` are resolved and confined to the profile's configured base directory; `..` segments are rejected outright. Confinement is per profile, and a per-call `transport` override is confined to the profile it selects, not to the default one. **A profile with no base directory at all is not confined** — there is nothing to confine it to — so each profile falls back to the other's base directory when it has none of its own, and the server warns on stderr at startup for any transport that still ends up without one.
-- Deletes (`FTP_ALLOW_DELETE`) and shell execution (`SSH_ALLOW_EXEC`) are both off by default and must be turned on explicitly.
+- Deletes (`REMOTE_ALLOW_DELETE`) and shell execution (`SSH_ALLOW_EXEC`) are both off by default and must be turned on explicitly.
 - **Pin the SSH host key with `SSH_HOST_FINGERPRINT`.** Unless it is set, the SSH and SFTP connections accept whatever host key they are offered — there is no `known_hosts` to fall back on — so anything on the network path can present its own key and be handed the account's password. When the variable is set, a mismatched key aborts the connection with an error naming both the expected and the received fingerprint; when it is unset, the server says so in a startup warning on stderr. Get the value from the host you trust with:
 
   ```bash

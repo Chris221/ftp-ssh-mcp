@@ -7,7 +7,7 @@
 // configuration rather than by SSH_ALLOW_EXEC because the two are separate
 // switches, NOT because it is the milder of the two: DB_USER must be set
 // explicitly (it does not inherit REMOTE_USER) precisely so that turning this
-// on is a deliberate act, and FTP_READONLY blocks it exactly as it blocks
+// on is a deliberate act, and REMOTE_READONLY blocks it exactly as it blocks
 // ssh_exec.
 
 import { z } from "zod";
@@ -42,7 +42,7 @@ export default {
         // Same clamp, and the same message, as ssh_exec: a read-only server
         // that refuses `touch` but runs DROP TABLE is not read-only.
         if (config.files.readOnly) {
-          throw new Error("Server is in read-only mode (FTP_READONLY=true).");
+          throw new Error("Server is in read-only mode (REMOTE_READONLY=true).");
         }
         if (!config.ssh.baseDir) {
           throw new Error("SSH_BASE_DIR is not set. Commands must run inside a known directory.");

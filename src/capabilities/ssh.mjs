@@ -35,7 +35,7 @@ export default {
       async ({ command }) => {
         assertSshUsable(config.ssh);
         if (config.files.readOnly) {
-          throw new Error("Server is in read-only mode (FTP_READONLY=true).");
+          throw new Error("Server is in read-only mode (REMOTE_READONLY=true).");
         }
         const safe = validateCommand(command, config.ssh.allowedCommands);
         const result = await sshRun(config.ssh, safe);
