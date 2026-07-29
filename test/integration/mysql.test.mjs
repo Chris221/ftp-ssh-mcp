@@ -98,6 +98,25 @@ describe("mysql_query credential delivery", () => {
     expect(received.stdin).toBe("SELECT 1;\n");
   });
 
+  it("names the signal when the mysql client is killed, not 'mysql exited null'", async () => {
+    // An OOM-killed import is the realistic shape on shared hosting. The
+    // stderr-empty + signal-death path used to render "mysql exited null".
+    server.onExec = (command, stream) => {
+      stream.resume();
+      stream.on("end", () => {
+        stream.exit("KILL");
+        stream.end();
+      });
+    };
+
+    const config = resolveConfig(baseEnv(server.port));
+    const { run } = buildTools(config);
+    const result = await run("mysql_query", { sql: "SELECT 1;" });
+
+    expect(result.error).toMatch(/killed by SIGKILL/);
+    expect(result.error).not.toMatch(/exited null/);
+  });
+
   it("refuses a DB_PASSWORD containing a line break rather than corrupting the stdin framing", async () => {
     const config = resolveConfig(baseEnv(server.port, { DB_PASSWORD: "bro\nken" }));
     const { run } = buildTools(config);

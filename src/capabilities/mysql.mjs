@@ -90,7 +90,11 @@ export default {
         const result = await sshRun(config.ssh, command, { stdin });
 
         if (result.code !== 0) {
-          const base = result.stderr.trim() || `mysql exited ${result.code}`;
+          // A signal death has no exit code (`code` is null) — name the
+          // signal rather than rendering "mysql exited null".
+          const base =
+            result.stderr.trim() ||
+            (result.signal ? `mysql was killed by ${result.signal}` : `mysql exited ${result.code}`);
           // A missing DB_PASSWORD is not necessarily a misconfiguration — the
           // host may supply credentials itself via ~/.my.cnf or a trusted local
           // socket (see configWarnings in config.mjs). But that warning goes to
