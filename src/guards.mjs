@@ -32,9 +32,16 @@ export function expandHome(filePath) {
  * Shared by expandRemoteBase (below) and effectiveBaseDir (../transports/
  * base-dir.mjs), which also uses it to decide whether the network round trip
  * to look up the login directory is needed at all — so the two cannot drift.
+ *
+ * Coerces like expandHome and expandRemoteBase do, rather than assuming a
+ * string. Every base directory in practice comes through normalizeBase, which
+ * guarantees one — but this is exported, and a caller that hands over an unset
+ * value should get "no, that is not a home reference" back, not a TypeError
+ * raised mid-connect.
  */
 export function isHomeRelative(baseDir) {
-  return baseDir === "~" || baseDir.startsWith("~/");
+  const base = String(baseDir ?? "");
+  return base === "~" || base.startsWith("~/");
 }
 
 /**

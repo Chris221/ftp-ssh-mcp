@@ -6,6 +6,7 @@ import {
   expandHome,
   expandRemoteBase,
   formatFingerprint,
+  isHomeRelative,
   normalizeFingerprint,
   quoteRemotePath,
   resolveRemotePath,
@@ -187,6 +188,32 @@ describe('expandHome', () => {
   it('tolerates an empty or missing value', () => {
     expect(expandHome('')).toBe('');
     expect(expandHome(undefined)).toBe('');
+  });
+});
+
+describe('isHomeRelative', () => {
+  it('recognises the two forms that name the login account own home', () => {
+    expect(isHomeRelative('~')).toBe(true);
+    expect(isHomeRelative('~/')).toBe(true);
+    expect(isHomeRelative('~/site')).toBe(true);
+  });
+
+  it('rejects a named home and a tilde anywhere but the start', () => {
+    expect(isHomeRelative('~other')).toBe(false);
+    expect(isHomeRelative('~other/site')).toBe(false);
+    expect(isHomeRelative('/home/u/~backup')).toBe(false);
+    expect(isHomeRelative('')).toBe(false);
+  });
+
+  // It gates both the expansion (expandRemoteBase) and the network round trip
+  // (effectiveBaseDir), and is exported, so it must answer rather than throw for
+  // a value that never passed through normalizeBase. Throwing here would turn
+  // "no confinement" into a TypeError at connect time.
+  it('answers false for a non-string instead of throwing', () => {
+    expect(isHomeRelative(undefined)).toBe(false);
+    expect(isHomeRelative(null)).toBe(false);
+    expect(isHomeRelative(0)).toBe(false);
+    expect(isHomeRelative(false)).toBe(false);
   });
 });
 
