@@ -21,9 +21,11 @@ export default {
       {
         title: "Run a command on the host",
         description:
-          "Run a single command on the remote host over SSH, inside SSH_BASE_DIR. Only programs in " +
-          "SSH_ALLOWED_CMDS may be invoked, and shell metacharacters are rejected, so each call runs " +
-          "exactly one program. Disabled unless SSH_ALLOW_EXEC=true.",
+          "Run a single command on the remote host over SSH, with SSH_BASE_DIR as the working " +
+          "directory. Only programs in SSH_ALLOWED_CMDS may be invoked, and shell metacharacters " +
+          "are rejected, so each call runs exactly one program — but path ARGUMENTS are not " +
+          "confined: an absolute path reaches whatever the account can. Disabled unless " +
+          "SSH_ALLOW_EXEC=true.",
         inputSchema: {
           command: z
             .string()
