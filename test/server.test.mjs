@@ -164,6 +164,11 @@ describe("main version and help flags", () => {
     expect(stderr).not.toHaveBeenCalled();
   });
 
+  it("lists --quiet in the help output", async () => {
+    await main(["node", "bin/ftp-ssh-mcp.mjs", "--help"], {}, dir);
+    expect(output()).toContain("--quiet");
+  });
+
   it("prefers help over selftest when both are passed", async () => {
     await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest", "--help"], {}, dir);
     expect(output()).toContain("Usage:");
@@ -173,5 +178,57 @@ describe("main version and help flags", () => {
     await expect(main(["node", "bin/ftp-ssh-mcp.mjs"], {}, dir)).rejects.toThrow(
       /No connection profile configured/
     );
+  });
+});
+
+// --quiet is passed once in a client's config file and then never revisited, so
+// it drops the informational warnings only. A warning that says the security
+// posture is weaker than you might assume — an unverified host key, or path
+// confinement switched off — still prints.
+describe("main --quiet", () => {
+  let dir;
+  let stderr;
+  let stdout;
+
+  // An SSH profile with no pinned fingerprint (security warning) and a DB user
+  // with no password (informational warning), so one config produces both.
+  const mixed = {
+    SSH_HOST: "h",
+    SSH_USER: "u",
+    SSH_PASSWORD: "p",
+    SSH_BASE_DIR: "/home/u",
+    DB_USER: "d",
+    DB_NAME: "n",
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "server-quiet-"));
+    stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    stderr.mockRestore();
+    stdout.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const errors = () => stderr.mock.calls.map((call) => String(call[0])).join("\n");
+
+  it("prints both warnings without the flag", async () => {
+    await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest"], mixed, dir);
+    expect(errors()).toContain("SSH_HOST_FINGERPRINT");
+    expect(errors()).toContain("DB_PASSWORD");
+  });
+
+  it.each(["--quiet", "-q"])("keeps the security warning and drops the rest for %s", async (flag) => {
+    await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest", flag], mixed, dir);
+    expect(errors()).toContain("SSH_HOST_FINGERPRINT");
+    expect(errors()).not.toContain("DB_PASSWORD");
+  });
+
+  it("still prints the selftest summary, which was asked for rather than volunteered", async () => {
+    await main(["node", "bin/ftp-ssh-mcp.mjs", "--selftest", "--quiet"], mixed, dir);
+    expect(errors()).toContain("selftest OK");
   });
 });

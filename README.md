@@ -171,10 +171,13 @@ It exits non-zero with a message naming the missing variable if configuration is
 | Option | Does |
 | --- | --- |
 | `--selftest` | Resolve the configuration, print the tools it would register, and exit. Opens no connection. |
+| `-q`, `--quiet` | Drop the informational startup warnings. |
 | `-v`, `--version` | Print the version and exit. |
 | `-h`, `--help` | Print usage and exit. |
 
 `--version` and `--help` answer before any configuration is read, so they work on a machine with nothing set up yet. Both print to stdout; everything else the server says goes to stderr, because stdout is the JSON-RPC channel.
+
+`--quiet` silences the warnings about a missing `DB_PASSWORD`, an `MCP_CAPABILITIES` entry that registered no tools, and a relative base directory. It deliberately does **not** silence the two that say your security posture is weaker than you might assume — an unverified host key, or path confinement switched off. A flag set once in a client's config file is never looked at again, so those stay visible until you fix them, which is the only silence worth having.
 
 ## Capabilities
 

@@ -86,6 +86,10 @@ export function helpText() {
     "Options:",
     "  --selftest     Resolve the configuration, print the tools it would register,",
     "                 and exit. Opens no connection.",
+    "  -q, --quiet    Drop the informational startup warnings. Warnings about a",
+    "                 weakened security posture — an unverified host key, or path",
+    "                 confinement switched off — still print; fix those to silence",
+    "                 them.",
     "  -v, --version  Print the version and exit.",
     "  -h, --help     Print this help and exit.",
     "",
@@ -132,7 +136,8 @@ export async function main(argv = process.argv, env = process.env, cwd = process
   // DB_PASSWORD) are printed here, once, in both the --selftest path and the
   // real startup path, so they're visible whether checking deliberately or
   // starting for real.
-  for (const warning of configWarnings(config)) {
+  const quiet = argv.includes("-q") || argv.includes("--quiet");
+  for (const warning of configWarnings(config, { quiet })) {
     console.error(`Warning: ${warning}`);
   }
 

@@ -585,6 +585,58 @@ describe("configWarnings", () => {
     ]);
   });
 
+  // --quiet is set once in a client config and then never looked at again, so it
+  // must not be able to permanently hide a weakened security posture. It drops
+  // the informational warnings and keeps the two that describe one.
+  describe("quiet", () => {
+    const quiet = (cfg) => configWarnings(cfg, { quiet: true });
+
+    it("keeps the unverified host key warning", () => {
+      const cfg = resolveConfig({ ...sshOnly, SSH_BASE_DIR: "/home/u" });
+      expect(quiet(cfg)).toStrictEqual([
+        "SSH_HOST_FINGERPRINT is not set, so the host key is accepted without verification " +
+          "and a machine on the path could impersonate the host. Pin it with the output of " +
+          '"ssh-keyscan -t rsa <host> | ssh-keygen -lf -".',
+      ]);
+    });
+
+    it("keeps the confinement-disabled warning", () => {
+      const cfg = resolveConfig({ ...ftpOnly });
+      expect(quiet(cfg)).toStrictEqual([unconfined("ftp", "FTP_BASE_DIR")]);
+    });
+
+    it("drops the relative base directory warning", () => {
+      const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "site" });
+      expect(configWarnings(cfg)).toHaveLength(1);
+      expect(quiet(cfg)).toStrictEqual([]);
+    });
+
+    it("drops the DB_PASSWORD warning", () => {
+      const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "/site", DB_USER: "d", DB_NAME: "n" });
+      expect(configWarnings(cfg)).toHaveLength(1);
+      expect(quiet(cfg)).toStrictEqual([]);
+    });
+
+    it("drops the inactive-capability warning", () => {
+      const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "/site", MCP_CAPABILITIES: "files,ssh" });
+      expect(configWarnings(cfg)).toHaveLength(1);
+      expect(quiet(cfg)).toStrictEqual([]);
+    });
+
+    it("keeps a security warning while dropping an informational one from the same config", () => {
+      const cfg = resolveConfig({ ...sshOnly, SSH_BASE_DIR: "/home/u", DB_USER: "d", DB_NAME: "n" });
+      expect(configWarnings(cfg)).toHaveLength(2);
+      const remaining = quiet(cfg);
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]).toContain("SSH_HOST_FINGERPRINT");
+    });
+
+    it("defaults to reporting everything when no options are passed", () => {
+      const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "site" });
+      expect(configWarnings(cfg)).toStrictEqual(configWarnings(cfg, { quiet: false }));
+    });
+  });
+
   it("does not warn about confinement when the files capability is not selected", () => {
     // No file tools are registered, so there is nothing unconfined to warn
     // about — and an unactionable warning trains people to ignore the rest.

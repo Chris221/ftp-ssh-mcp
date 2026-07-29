@@ -258,18 +258,31 @@ export function validateConfig(config) {
  * credentials itself via ~/.my.cnf or a trusted local socket. Refusing to start
  * over this would reject a configuration that works, so it is a warning rather
  * than a validateConfig throw.
+ *
+ * `quiet` drops the informational warnings and keeps the ones that describe a
+ * weakened security posture. The asymmetry is the point: --quiet is set once in
+ * a client's JSON config and then never looked at again, so it must not be able
+ * to permanently hide an unverified host key or switched-off path confinement.
+ * Those two are silenced by FIXING them, which is the only silence worth having.
  */
-export function configWarnings(config) {
+export function configWarnings(config, { quiet = false } = {}) {
   const warnings = [];
+
+  /** Record a warning. `security: true` means it survives `quiet`. */
+  const warn = (message, { security = false } = {}) => {
+    if (quiet && !security) return;
+    warnings.push(message);
+  };
 
   // ssh2 accepts any host key unless a hostVerifier is supplied, so without a
   // pinned fingerprint the SSH side is strictly less careful than the FTPS side
   // (which rejects an unverifiable certificate by default). Say so out loud.
   if (config.ssh && !config.ssh.hostFingerprint) {
-    warnings.push(
+    warn(
       "SSH_HOST_FINGERPRINT is not set, so the host key is accepted without verification " +
         "and a machine on the path could impersonate the host. Pin it with the output of " +
-        '"ssh-keyscan -t rsa <host> | ssh-keygen -lf -".'
+        '"ssh-keyscan -t rsa <host> | ssh-keygen -lf -".',
+      { security: true }
     );
   }
 
@@ -282,10 +295,11 @@ export function configWarnings(config) {
       ["sftp", "SSH_BASE_DIR", config.ssh],
     ]) {
       if (profile && !profile.baseDir) {
-        warnings.push(
+        warn(
           `No base directory resolved for the ${name} transport, so path confinement is ` +
             `disabled there: the file tools can reach any path the account can. Set ` +
-            `${variable} (or REMOTE_BASE_DIR).`
+            `${variable} (or REMOTE_BASE_DIR).`,
+          { security: true }
         );
         continue;
       }
@@ -301,7 +315,7 @@ export function configWarnings(config) {
       // path in that session. A missing leading slash is the likeliest way to
       // write one by accident, and nothing else in the config would mention it.
       if (profile && !profile.baseDir.startsWith("/") && !isHomeRelative(profile.baseDir)) {
-        warnings.push(
+        warn(
           `The ${name} base directory "${profile.baseDir}" is relative, so the server ` +
             `resolves it against whatever directory the session starts in rather than a root ` +
             `pinned here. Set ${variable} (or REMOTE_BASE_DIR) to "~/<dir>" for the account's ` +
@@ -322,7 +336,7 @@ export function configWarnings(config) {
       (name) => known.has(name) && !active.has(name)
     );
     if (inactive.length > 0) {
-      warnings.push(
+      warn(
         "MCP_CAPABILITIES names capabilities that are not configured, so they registered no " +
           `tools: ${inactive.join(", ")}. See the Capabilities table in the README for what ` +
           "each one requires." +
@@ -332,7 +346,7 @@ export function configWarnings(config) {
   }
 
   if (config.db && config.db.user && !config.db.password) {
-    warnings.push(
+    warn(
       "DB_PASSWORD is not set. The mysql client will rely on host-side credentials " +
         "such as ~/.my.cnf (fine if the remote host is configured that way, otherwise " +
         "connections will fail)."
