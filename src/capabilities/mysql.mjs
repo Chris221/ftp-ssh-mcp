@@ -53,18 +53,41 @@ export default {
         if (!config.db.user) throw new Error("DB_USER is not set.");
         if (!dbName) throw new Error("No database given and DB_NAME is not set.");
 
-        // --table gives readable output. The password is passed as MYSQL_PWD so
-        // it is not in the mysql client's own argv — but the whole command is
-        // executed as a single shell string, so the WRAPPING SHELL's argv does
-        // contain it, and `ps aux` on the host will show it for the duration of
-        // the query. On shared hosting that is a real exposure to co-tenants,
-        // not a theoretical one. Writing a mode-600 --defaults-extra-file on the
-        // host would close it; that is tracked separately, not done here.
-        const command = `mysql --user=${shellQuote(config.db.user)} --database=${shellQuote(dbName)} --table`;
-        const result = await sshRun(config.ssh, command, {
-          stdin: sql.endsWith("\n") ? sql : `${sql}\n`,
-          env: { MYSQL_PWD: config.db.password },
-        });
+        // --table gives readable output. The password never touches the
+        // command string: the whole command is executed as a single shell
+        // string, so anything in it — an env prefix like MYSQL_PWD='…'
+        // included — lands in the wrapping shell's argv, and `ps aux` on the
+        // host shows argv to every co-tenant for the duration of the query.
+        // On shared hosting that is a real exposure, not a theoretical one.
+        // Instead the password rides the FIRST LINE of stdin: the remote
+        // shell reads it into MYSQL_PWD (IFS= and -r keep it verbatim),
+        // exports it, and mysql consumes the remaining stream as SQL. The
+        // secret then exists only in process environments, which are
+        // owner-readable — the same protection class as the mode-600
+        // --defaults-extra-file approach, with no host file to create, clean
+        // up, or leak on a dropped connection.
+        //
+        // A password is only deliverable this way if it has no line break of
+        // its own; one that does would become SQL from its second line on.
+        // Refuse it by name rather than send corrupted framing.
+        const base = `mysql --user=${shellQuote(config.db.user)} --database=${shellQuote(dbName)} --table`;
+        let command = base;
+        let stdin = sql.endsWith("\n") ? sql : `${sql}\n`;
+        if (config.db.password) {
+          if (/[\r\n]/.test(config.db.password)) {
+            throw new Error(
+              "DB_PASSWORD contains a line break, which cannot be delivered over the " +
+                "single-line stdin protocol mysql_query uses to keep it out of `ps`. " +
+                "Use a password without CR/LF characters."
+            );
+          }
+          command = `IFS= read -r MYSQL_PWD && export MYSQL_PWD && ${base}`;
+          stdin = `${config.db.password}\n${stdin}`;
+        }
+        // When DB_PASSWORD is unset, no mechanism runs at all — exporting
+        // MYSQL_PWD='' would be an empty-password auth attempt, which defeats
+        // the host-side ~/.my.cnf fallback this capability documents.
+        const result = await sshRun(config.ssh, command, { stdin });
 
         if (result.code !== 0) {
           const base = result.stderr.trim() || `mysql exited ${result.code}`;

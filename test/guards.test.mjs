@@ -145,16 +145,6 @@ describe('buildRemoteCommand', () => {
     );
   });
 
-  it('passes env vars as a prefix rather than in argv', () => {
-    // Keeps the database password out of the host's process list.
-    const built = buildRemoteCommand({
-      baseDir,
-      env: { MYSQL_PWD: "p'wd" },
-      command: 'mysql --table',
-    });
-    expect(built).toContain(`MYSQL_PWD='p'\\''wd' mysql --table`);
-  });
-
   it('requires a baseDir and a command', () => {
     expect(() => buildRemoteCommand({ baseDir: '', command: 'pwd' })).toThrow(/baseDir/);
     expect(() => buildRemoteCommand({ baseDir, command: '' })).toThrow(/command/);

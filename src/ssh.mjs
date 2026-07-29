@@ -132,11 +132,10 @@ export async function withSsh(profile, fn) {
  * `stdin` is written to the process rather than placed on the command line,
  * which is how SQL reaches the mysql client without shell redirection.
  */
-export async function sshRun(profile, command, { stdin = "", env = {} } = {}) {
+export async function sshRun(profile, command, { stdin = "" } = {}) {
   const full = buildRemoteCommand({
     activate: profile.activate,
     baseDir: profile.baseDir,
-    env,
     command,
   });
 

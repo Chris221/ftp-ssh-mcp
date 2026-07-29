@@ -170,7 +170,7 @@ export function resolveRemotePath(input, baseDir = "") {
  * unrelated commands like `ls` or `mysql` from running. When it is missing,
  * `npm` simply fails with "command not found", which says what is wrong.
  */
-export function buildRemoteCommand({ activate = "", baseDir, env = {}, command }) {
+export function buildRemoteCommand({ activate = "", baseDir, command }) {
   if (!baseDir) throw new Error("A baseDir is required.");
   if (!command) throw new Error("A command is required.");
 
@@ -180,12 +180,14 @@ export function buildRemoteCommand({ activate = "", baseDir, env = {}, command }
   // sequence left to right, so this reads as (activate || true) && cd && cmd.
   if (activate) steps.push(`. ${quoteRemotePath(activate)} 2>/dev/null || :`);
   steps.push(`cd ${quoteRemotePath(baseDir)}`);
+  steps.push(command);
 
-  const prefix = Object.entries(env)
-    .map(([key, value]) => `${key}=${shellQuote(value)} `)
-    .join("");
-  steps.push(`${prefix}${command}`);
-
+  // There is deliberately NO env-var-prefix option here. A `KEY='value'`
+  // prefix lands in the wrapping shell's argv — the whole assembled string is
+  // one `sh -c` argument — so it is exactly the wrong place for a secret:
+  // `ps` shows argv to every user on the host. mysql_query used one for
+  // MYSQL_PWD and exposed the password that way; secrets belong on stdin
+  // (see capabilities/mysql.mjs), never in the command string.
   return steps.join(" && ");
 }
 
