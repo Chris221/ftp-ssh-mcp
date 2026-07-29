@@ -94,6 +94,14 @@ export async function buildAuthOptions(profile) {
  * `tryKeyboard` alone only offers the method; without this listener ssh2 never
  * replies to the prompt and the connection hangs until readyTimeout. Must be
  * attached to the ssh2 Client BEFORE connect() is called.
+ *
+ * EVERY prompt gets the password — deliberately. The target host is shared
+ * hosting that presents plain password auth through keyboard-interactive as a
+ * single prompt, and prompt text is server-defined free text ("Password:",
+ * "Passwort:", …) that cannot be matched reliably. The known limitation: a
+ * host that keyboard-interactively asks for a second factor (an OTP) gets the
+ * password there too, and auth fails. There is nothing sensible to answer an
+ * OTP prompt with from a static config — such hosts need key auth instead.
  */
 export function attachKeyboardInteractive(client, profile) {
   client.on("keyboard-interactive", (_name, _instructions, _lang, prompts, finish) => {
