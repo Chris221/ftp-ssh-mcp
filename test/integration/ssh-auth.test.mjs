@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { resolveConfig } from "../../src/config.mjs";
-import { sshRun } from "../../src/ssh.mjs";
+import { buildAuthOptions, sshRun } from "../../src/ssh.mjs";
 import { withClient } from "../../src/transports/index.mjs";
 import { generateHostKey } from "../fixtures/host-key.mjs";
 import { startSftpServer } from "../fixtures/sftp-server.mjs";
@@ -62,6 +62,28 @@ const echoBack = (stream) => {
   stream.exit(0);
   stream.end();
 };
+
+describe("connection liveness options", () => {
+  it("arms keepalives so a silently dead connection cannot hang an operation forever", async () => {
+    // SSH_TIMEOUT_MS only becomes ssh2's readyTimeout — handshake cover — and
+    // ssh_exec has its own command timer, but SFTP operations had nothing: a
+    // network path that dies without an RST (NAT expiry, dropped Wi-Fi) left
+    // put/get pending until TCP retransmission gave up, tens of minutes later.
+    // Keepalive probes bound that on BOTH transports, since both connect
+    // through buildAuthOptions: with a probe every 15s and 4 tolerated
+    // misses, a dead connection surfaces as an error within ~60-75s.
+    const { options } = await buildAuthOptions({
+      host: "127.0.0.1",
+      port: 22,
+      user: "tester",
+      password: "secret",
+      timeout: 8000,
+    });
+
+    expect(options.keepaliveInterval).toBe(15000);
+    expect(options.keepaliveCountMax).toBe(4);
+  });
+});
 
 describe("private-key authentication", () => {
   let keyPath;

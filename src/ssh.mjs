@@ -49,6 +49,14 @@ export async function buildAuthOptions(profile) {
     port: profile.port,
     username: profile.user,
     readyTimeout: profile.timeout,
+    // readyTimeout covers only the handshake, and ssh_exec's own timer covers
+    // commands — but SFTP operations had nothing: a network path that dies
+    // without an RST (NAT expiry, dropped Wi-Fi) left put/get pending until
+    // TCP retransmission gave up, tens of minutes later. Keepalive probes
+    // bound that on both transports: one every 15s, dead after 4 misses, so
+    // a silently dead connection surfaces as an error within ~60-75s.
+    keepaliveInterval: 15000,
+    keepaliveCountMax: 4,
   };
 
   if (profile.privateKeyPath) {
