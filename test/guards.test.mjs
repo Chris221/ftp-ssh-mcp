@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   buildRemoteCommand,
   expandHome,
+  expandRemoteBase,
   formatFingerprint,
   normalizeFingerprint,
   quoteRemotePath,
@@ -186,6 +187,49 @@ describe('expandHome', () => {
   it('tolerates an empty or missing value', () => {
     expect(expandHome('')).toBe('');
     expect(expandHome(undefined)).toBe('');
+  });
+});
+
+describe('expandRemoteBase', () => {
+  it('returns an absolute base unchanged', () => {
+    expect(expandRemoteBase('/home/u/site', '/home/u')).toBe('/home/u/site');
+  });
+
+  it('leaves a tilde that is not a home reference alone', () => {
+    expect(expandRemoteBase('/home/u/~backup', '/home/u')).toBe('/home/u/~backup');
+  });
+
+  it('returns an empty base unchanged, so "no confinement" stays no confinement', () => {
+    expect(expandRemoteBase('', '/home/u')).toBe('');
+  });
+
+  it('expands a lone tilde to the login directory', () => {
+    expect(expandRemoteBase('~', '/home/u')).toBe('/home/u');
+  });
+
+  it('expands a trailing-slash tilde to the login directory', () => {
+    expect(expandRemoteBase('~/', '/home/u')).toBe('/home/u');
+  });
+
+  it('expands a tilde-prefixed path', () => {
+    expect(expandRemoteBase('~/site/public', '/home/u')).toBe('/home/u/site/public');
+  });
+
+  it('handles a chrooted login directory of "/"', () => {
+    expect(expandRemoteBase('~/site', '/')).toBe('/site');
+    expect(expandRemoteBase('~', '/')).toBe('/');
+  });
+
+  it('strips a trailing slash from the reported login directory', () => {
+    expect(expandRemoteBase('~', '/home/u/')).toBe('/home/u');
+    expect(expandRemoteBase('~/site', '/home/u/')).toBe('/home/u/site');
+  });
+
+  it('refuses a login directory that is not absolute', () => {
+    // A relative base would silently rebase every path onto the session's
+    // working directory instead of confining it.
+    expect(() => expandRemoteBase('~/site', 'home/u')).toThrow(/not an absolute path/);
+    expect(() => expandRemoteBase('~/site', '')).toThrow(/not an absolute path/);
   });
 });
 

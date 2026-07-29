@@ -26,6 +26,37 @@ export function expandHome(filePath) {
 }
 
 /**
+ * Expand a leading `~` in a REMOTE base directory.
+ *
+ * Unlike expandHome, which resolves against THIS machine's home, `home` here is
+ * what the remote server reported for the account that logged in: realpath(".")
+ * over SFTP, PWD over FTP. Neither protocol expands a tilde itself — an OpenSSH
+ * server resolves `~` to a directory literally NAMED "~" under the home
+ * directory — so the expansion has to happen client-side, and it can only happen
+ * once a connection exists.
+ *
+ * A relative `home` is refused rather than used. resolveRemotePath reads a falsy
+ * base as "no confinement", and a relative one would quietly rebase every path
+ * onto the session's working directory; neither is what the user asked for.
+ */
+export function expandRemoteBase(baseDir, home) {
+  const base = String(baseDir ?? "");
+  if (base !== "~" && !base.startsWith("~/")) return base;
+
+  const login = String(home ?? "");
+  if (!login.startsWith("/")) {
+    throw new Error(
+      `Cannot expand the base directory "${base}": the server reported its login ` +
+        `directory as "${login}", which is not an absolute path.`
+    );
+  }
+
+  const rest = base.slice(2);
+  const normalized = posix.normalize(rest ? posix.join(login, rest) : login);
+  return normalized === "/" ? "/" : normalized.replace(/\/+$/, "");
+}
+
+/**
  * Normalise a SHA-256 host-key fingerprint to lowercase hex.
  *
  * Accepts the two renderings a user actually has to hand:
