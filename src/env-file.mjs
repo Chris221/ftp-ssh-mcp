@@ -32,33 +32,60 @@ function parseValue(rawValue) {
   return quoted ? quoted[2] : trimmed;
 }
 
+/** Apply every KEY=value line of `raw` that `env` does not already carry. */
+function applyLines(env, raw) {
+  for (const line of raw.split(/\r?\n/)) {
+    const match = ASSIGNMENT.exec(line);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (env[key]) continue;
+    env[key] = parseValue(rawValue);
+  }
+}
+
 /**
- * Populate `env` from the first readable candidate file.
+ * Populate `env` from MCP_ENV_FILE, or failing that from cwd/.env.
  *
  * Values already present and non-empty in `env` win, so a real environment
  * variable can override the file. An empty string counts as absent, so blanking
  * a key in .mcp.json falls through to .env rather than silently setting "".
  *
+ * The two candidates fail differently, and that asymmetry is the point. A
+ * missing cwd/.env is the everyday case (variables set some other way) and is
+ * silently fine. MCP_ENV_FILE is a path the user wrote out by hand; a typo'd
+ * one that quietly fell back to cwd/.env — or to nothing — would start the
+ * server on DIFFERENT credentials than the ones asked for, and the only trace
+ * would be `env=` in a --selftest nobody is required to run. So an unreadable
+ * MCP_ENV_FILE throws, and it is resolved against `cwd` like the fallback is,
+ * rather than against wherever the process happened to start.
+ *
  * @returns the path of the file that was read, or null when none was.
  */
 export function loadEnvFile(env = process.env, cwd = process.cwd()) {
-  const candidates = [env.MCP_ENV_FILE, path.resolve(cwd, ".env")].filter(Boolean);
-
-  for (const file of candidates) {
+  if (env.MCP_ENV_FILE) {
+    const file = path.resolve(cwd, env.MCP_ENV_FILE);
     let raw;
     try {
       raw = readFileSync(file, "utf8");
-    } catch {
-      continue;
+    } catch (err) {
+      throw new Error(
+        `MCP_ENV_FILE is "${env.MCP_ENV_FILE}", but that file could not be read ` +
+          `(${err.code || err.message}). Fix the path, or unset MCP_ENV_FILE to use ` +
+          `cwd/.env or the process environment.`,
+        { cause: err }
+      );
     }
-    for (const line of raw.split(/\r?\n/)) {
-      const match = ASSIGNMENT.exec(line);
-      if (!match) continue;
-      const [, key, rawValue] = match;
-      if (env[key]) continue;
-      env[key] = parseValue(rawValue);
-    }
+    applyLines(env, raw);
     return file;
   }
-  return null;
+
+  const fallback = path.resolve(cwd, ".env");
+  let raw;
+  try {
+    raw = readFileSync(fallback, "utf8");
+  } catch {
+    return null;
+  }
+  applyLines(env, raw);
+  return fallback;
 }

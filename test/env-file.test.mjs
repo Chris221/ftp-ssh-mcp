@@ -66,11 +66,25 @@ describe("loadEnvFile", () => {
     expect(env.A).toBe("explicit");
   });
 
-  it("falls back to cwd/.env when MCP_ENV_FILE does not exist", () => {
+  it("throws when MCP_ENV_FILE names a file that cannot be read", () => {
+    // The user explicitly pointed at a file. Falling back to cwd/.env (or to
+    // nothing) loads DIFFERENT credentials than the ones they asked for, and
+    // says nothing — a typo'd path must fail the startup loudly instead.
     writeFileSync(path.join(dir, ".env"), "A=implicit\n");
     const env = { MCP_ENV_FILE: path.join(dir, "missing.env") };
-    expect(loadEnvFile(env, dir)).toBe(path.join(dir, ".env"));
-    expect(env.A).toBe("implicit");
+
+    expect(() => loadEnvFile(env, dir)).toThrow(/MCP_ENV_FILE/);
+    expect(() => loadEnvFile(env, dir)).toThrow(/missing\.env/);
+    // And nothing was loaded from the fallback .env behind the user's back.
+    expect(env.A).toBeUndefined();
+  });
+
+  it("resolves a relative MCP_ENV_FILE against cwd, like the .env fallback", () => {
+    writeFileSync(path.join(dir, "custom.env"), "A=relative\n");
+    const env = { MCP_ENV_FILE: "custom.env" };
+
+    expect(loadEnvFile(env, dir)).toBe(path.join(dir, "custom.env"));
+    expect(env.A).toBe("relative");
   });
 
   it("preserves values containing = characters unquoted", () => {

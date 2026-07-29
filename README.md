@@ -195,7 +195,7 @@ The `files` tools are transport-neutral: they work over whichever transport `FIL
 
 Every setting is resolved from environment variables in this order: a profile-specific variable (`FTP_*` or `SSH_*`) first, then the shared `REMOTE_*` fallback, then a built-in default. Two independent profiles exist — FTP and SSH — and you may configure either, both, or neither in isolation (though at least one is required to start).
 
-Variables are normally read from process environment, but the server also loads a `.env` file from the current working directory before resolving configuration, so credentials can live outside the MCP client's own (often tracked) config file. A real environment variable already set takes precedence over the `.env` file. Point at a different file with `MCP_ENV_FILE`. **The `.env` parser does not support inline comments** — `KEY=value # note` treats everything after `=` as the value, including ` # note`, so keep comments on their own line.
+Variables are normally read from process environment, but the server also loads a `.env` file from the current working directory before resolving configuration, so credentials can live outside the MCP client's own (often tracked) config file. A real environment variable already set takes precedence over the `.env` file. Point at a different file with `MCP_ENV_FILE` — a relative value is resolved against the working directory, and a set-but-unreadable one **fails startup** rather than silently falling back to `.env` and loading different credentials than the ones you named. **The `.env` parser does not support inline comments** — `KEY=value # note` treats everything after `=` as the value, including ` # note`, so keep comments on their own line.
 
 ### Secret inheritance
 
@@ -290,7 +290,8 @@ Start with `npx -y ftp-ssh-mcp@0 --selftest` from the directory holding your `.e
 | --- | --- |
 | Server never starts, no error in the client | On Windows, `command` is `npx`. Use the `cmd /c` form — see Install. |
 | `No connection profile configured` | No host or user resolved. Set `REMOTE_HOST` and `REMOTE_USER`, or the `FTP_*`/`SSH_*` equivalents. |
-| `env=<none>` in the selftest output | The `.env` file was not found. It is resolved from the **working directory**, not from the config file's location or the package's. Set `MCP_ENV_FILE` to an absolute path if your client has no project directory. |
+| `env=<none>` in the selftest output | No `.env` file was found and `MCP_ENV_FILE` is unset. `.env` is resolved from the **working directory**, not from the config file's location or the package's. Set `MCP_ENV_FILE` to an absolute path if your client has no project directory. |
+| `MCP_ENV_FILE is "…", but that file could not be read` | The explicitly named env file does not exist or is not readable at that path (resolved against the working directory when relative). This fails startup deliberately — a typo'd path must not silently start the server on whatever `.env` happens to be in the working directory. |
 | `<PREFIX>_PASSWORD is not set` even though `REMOTE_PASSWORD` is | The profile sets its own `*_USER`, so it is treated as a distinct identity and does not inherit the shared secret. Set its password explicitly — see Secret inheritance. |
 | A tool you expected is missing | Its capability is not enabled. `ssh_exec` needs `SSH_ALLOW_EXEC=true` **and** `SSH_BASE_DIR`; `mysql_query` needs `DB_USER` **and** `DB_NAME`, with `DB_USER` set explicitly. Check `capabilities=[…]` in the selftest line. |
 | Selftest says `capabilities=[]` | `MCP_CAPABILITIES` names capabilities that are not configured. It can only narrow what is already configured, never enable anything. |
