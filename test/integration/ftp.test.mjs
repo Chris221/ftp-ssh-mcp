@@ -239,4 +239,33 @@ describe("tilde base dir", () => {
     const seen = await withClient(config, (_client, baseDir) => baseDir);
     expect(seen).toBe("/home/tester/site");
   });
+
+  it("confines a tool call to the expanded base dir", async () => {
+    writeFileSync(path.join(remoteRoot, "home", "tester", "site", "a.txt"), "12345");
+    const run = toolRunnerFor(tildeConfig);
+
+    const result = await run("file_list", { remotePath: "." });
+
+    expect(result.error).toBeUndefined();
+    expect(result.content[0].text).toMatch(/^\/home\/tester\/site\n/);
+    expect(result.content[0].text).toContain("a.txt");
+  });
+
+  it("resolves an absolute-looking tool path under the expanded base dir", async () => {
+    mkdirSync(path.join(remoteRoot, "home", "tester", "site", "etc"), { recursive: true });
+    const run = toolRunnerFor(tildeConfig);
+
+    const result = await run("file_list", { remotePath: "/etc" });
+
+    expect(result.error).toBeUndefined();
+    expect(result.content[0].text).toMatch(/^\(empty\) \/home\/tester\/site\/etc$/);
+  });
+
+  it("still rejects .. before opening a connection", async () => {
+    const run = toolRunnerFor(tildeConfig);
+
+    const result = await run("file_list", { remotePath: "../../etc" });
+
+    expect(result.error).toMatch(/'\.\.' segments/);
+  });
 });

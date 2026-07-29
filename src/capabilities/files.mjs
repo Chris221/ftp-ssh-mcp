@@ -6,7 +6,6 @@ import { stat } from "node:fs/promises";
 import { z } from "zod";
 
 import { resolveRemotePath } from "../guards.mjs";
-import { fileProfile } from "../transports/index.mjs";
 
 const transportArg = z
   .enum(["ftp", "sftp"])
@@ -29,8 +28,12 @@ export default {
   register(ctx) {
     const { config, register, text, withClient } = ctx;
 
-    const resolve = (input, override) =>
-      resolveRemotePath(input, fileProfile(config, override).profile.baseDir);
+    // Reject "..", an empty path and the like BEFORE opening a connection: that
+    // check needs no base directory, and a traversal attempt should not cost a
+    // network round trip. The fence check — the part that needs the base — has
+    // to wait, because a "~" base is only expanded once the server has reported
+    // the account's login directory.
+    const precheck = (input) => resolveRemotePath(input, "");
 
     const assertWritable = () => {
       if (config.files.readOnly) {
@@ -59,8 +62,12 @@ export default {
         },
       },
       async ({ remotePath, transport }) => {
-        const remote = resolve(remotePath || ".", transport);
-        const entries = await withClient((c) => c.list(remote), transport);
+        const input = remotePath || ".";
+        precheck(input);
+        const { remote, entries } = await withClient(async (client, baseDir) => {
+          const target = resolveRemotePath(input, baseDir);
+          return { remote: target, entries: await client.list(target) };
+        }, transport);
         if (entries.length === 0) return text(`(empty) ${remote}`);
         const lines = entries
           .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
@@ -84,8 +91,12 @@ export default {
       async ({ localPath, remotePath, transport }) => {
         assertWritable();
         await assertLocalFile(localPath);
-        const remote = resolve(remotePath, transport);
-        await withClient((c) => c.upload(localPath, remote), transport);
+        precheck(remotePath);
+        const remote = await withClient(async (client, baseDir) => {
+          const target = resolveRemotePath(remotePath, baseDir);
+          await client.upload(localPath, target);
+          return target;
+        }, transport);
         return text(`Uploaded ${localPath} -> ${remote}`);
       }
     );
@@ -105,8 +116,12 @@ export default {
         assertWritable();
         const info = await assertLocalFile(localDir);
         if (!info.isDirectory()) throw new Error(`Not a directory: ${localDir}`);
-        const remote = resolve(remoteDir, transport);
-        await withClient((c) => c.uploadDir(localDir, remote), transport);
+        precheck(remoteDir);
+        const remote = await withClient(async (client, baseDir) => {
+          const target = resolveRemotePath(remoteDir, baseDir);
+          await client.uploadDir(localDir, target);
+          return target;
+        }, transport);
         return text(`Uploaded directory ${localDir} -> ${remote}`);
       }
     );
@@ -123,8 +138,12 @@ export default {
         },
       },
       async ({ remotePath, localPath, transport }) => {
-        const remote = resolve(remotePath, transport);
-        await withClient((c) => c.download(remote, localPath), transport);
+        precheck(remotePath);
+        const remote = await withClient(async (client, baseDir) => {
+          const target = resolveRemotePath(remotePath, baseDir);
+          await client.download(target, localPath);
+          return target;
+        }, transport);
         return text(`Downloaded ${remote} -> ${localPath}`);
       }
     );
@@ -141,8 +160,12 @@ export default {
       },
       async ({ remotePath, transport }) => {
         assertWritable();
-        const remote = resolve(remotePath, transport);
-        await withClient((c) => c.mkdir(remote), transport);
+        precheck(remotePath);
+        const remote = await withClient(async (client, baseDir) => {
+          const target = resolveRemotePath(remotePath, baseDir);
+          await client.mkdir(target);
+          return target;
+        }, transport);
         return text(`Created directory ${remote}`);
       }
     );
@@ -162,8 +185,12 @@ export default {
       },
       async ({ remotePath, isDirectory, transport }) => {
         assertDeletable();
-        const remote = resolve(remotePath, transport);
-        await withClient((c) => (isDirectory ? c.removeDir(remote) : c.removeFile(remote)), transport);
+        precheck(remotePath);
+        const remote = await withClient(async (client, baseDir) => {
+          const target = resolveRemotePath(remotePath, baseDir);
+          await (isDirectory ? client.removeDir(target) : client.removeFile(target));
+          return target;
+        }, transport);
         return text(`Deleted ${isDirectory ? "directory" : "file"} ${remote}`);
       }
     );

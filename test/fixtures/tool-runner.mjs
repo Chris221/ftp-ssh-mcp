@@ -11,6 +11,7 @@
 // their own ctx, so the plumbing lives in exactly one place.
 
 import { selectCapabilities } from "../../src/capabilities/index.mjs";
+import { fileProfile } from "../../src/transports/index.mjs";
 
 export function buildTools(config, { withClient } = {}) {
   const names = [];
@@ -32,7 +33,13 @@ export function buildTools(config, { withClient } = {}) {
             "Pass { withClient } to buildTools to stub it."
         );
       }
-      return withClient(fn, override);
+      // The real withClient hands the callback the connection's EFFECTIVE base
+      // directory, with any "~" already expanded. A stub never connects and
+      // passes nothing, so fall back to the configured value — identical for the
+      // absolute base dirs these unit tests use. `??` not `||`: an empty base
+      // dir means "no confinement" and must not be replaced.
+      const { profile } = fileProfile(config, override);
+      return withClient((client, baseDir) => fn(client, baseDir ?? profile.baseDir), override);
     },
   };
 
