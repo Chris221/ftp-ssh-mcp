@@ -219,24 +219,29 @@ export function validateConfig(config) {
     throw new Error(`Invalid FTP_SECURITY "${config.ftpSecurity}". Use one of: ${modes.join(", ")}.`);
   }
 
-  // Only a shell expands "~". ssh_exec gets that for free through
-  // quoteRemotePath, but the file tools hand the path straight to the FTP or
-  // SFTP protocol, where nothing expands it: an OpenSSH server resolves "~" to a
-  // directory literally NAMED "~" under the home directory, so every file call
-  // lands somewhere that does not exist. Half the tools quietly working is the
-  // confusing failure, so refuse the config by name instead of warning — a
-  // startup warning on stderr is exactly what goes unread.
+  // A "~" is expanded client-side, from the login directory the server reports
+  // once a connection exists — realpath(".") over SFTP, PWD over FTP (see
+  // effectiveBaseDir in transports/base-dir.mjs). Neither protocol expands one
+  // itself: an OpenSSH server resolves "~" to a directory literally NAMED "~".
+  //
+  // That lookup can only answer for the account that logged in, so a NAMED home
+  // — "~other/site" — has no way to be resolved and would be sent to the server
+  // as a literal path. Refuse it by name here rather than let half the tools
+  // quietly work: ssh_exec would still succeed, because a remote shell does
+  // expand it (quoteRemotePath), which is exactly what makes the failure
+  // confusing.
   if (servesFiles(config)) {
     for (const [name, variable, profile] of [
       ["ftp", "FTP_BASE_DIR", config.ftp],
       ["sftp", "SSH_BASE_DIR", config.ssh],
     ]) {
-      if (profile && /^~(\/|$)/.test(profile.baseDir)) {
+      if (profile && /^~[^/]/.test(profile.baseDir)) {
         throw new Error(
-          `The ${name} base directory is "${profile.baseDir}", but "~" is only expanded by a ` +
-            `shell and the file tools speak FTP/SFTP directly, where it names a literal "~" ` +
-            `directory. Set ${variable} (or REMOTE_BASE_DIR) to an absolute path, ` +
-            `such as "/home/<user>/<dir>".`
+          `The ${name} base directory is "${profile.baseDir}", but only the logged-in ` +
+            `account's own home can be resolved: "~" and "~/<dir>" are expanded from the ` +
+            `login directory, a named home like "~user/<dir>" cannot be. Set ${variable} ` +
+            `(or REMOTE_BASE_DIR) to "~/<dir>" or an absolute path such as ` +
+            `"/home/<user>/<dir>".`
         );
       }
     }

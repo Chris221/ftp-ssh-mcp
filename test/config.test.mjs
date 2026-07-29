@@ -124,10 +124,10 @@ describe("cross-profile base dir fallback", () => {
   });
 });
 
-// A "~" reaches the file tools unexpanded: there is no shell in the FTP or SFTP
-// protocol, and an OpenSSH server resolves it to a directory literally named
-// "~" under the home dir. ssh_exec is fine (quoteRemotePath expands it), which
-// is what makes the failure confusing — so the config is refused outright.
+// A "~" base dir is expanded client-side once a connection exists, from the
+// login directory the server reports (see src/transports/base-dir.mjs) — neither
+// FTP nor SFTP expands one itself. Only the logged-in account's own home can be
+// discovered that way, so "~user/..." is still refused.
 describe("tilde base dir", () => {
   const both = { ...ftpOnly, ...sshOnly };
 
@@ -135,25 +135,45 @@ describe("tilde base dir", () => {
     ["~", "a lone tilde"],
     ["~/", "a trailing-slash tilde"],
     ["~/site", "a tilde-prefixed path"],
-  ])('rejects %s as an ftp base dir (%s)', (value) => {
+  ])('accepts %s as an ftp base dir (%s)', (value) => {
     const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: value });
-    expect(() => validateConfig(cfg)).toThrow(/FTP_BASE_DIR .*absolute path/s);
+    expect(() => validateConfig(cfg)).not.toThrow();
   });
 
-  it("rejects a tilde ssh base dir and names SSH_BASE_DIR", () => {
+  it("accepts a tilde ssh base dir", () => {
     const cfg = resolveConfig({ ...sshOnly, SSH_BASE_DIR: "~/site" });
-    expect(() => validateConfig(cfg)).toThrow(/SSH_BASE_DIR .*absolute path/s);
+    expect(cfg.ssh.baseDir).toBe("~/site");
+    expect(() => validateConfig(cfg)).not.toThrow();
   });
 
-  it("names the borrowed variable when the tilde is inherited", () => {
-    // FTP borrows SSH's tilde, so both profiles are bad; FTP is reported first.
+  it("folds a trailing-slash tilde to a bare one", () => {
+    const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "~/" });
+    expect(cfg.ftp.baseDir).toBe("~");
+  });
+
+  it("lends a tilde base across profiles, each expanding it against its own home", () => {
+    // The FTP account is often chrooted where SSH sees the whole home, so the
+    // borrowed "~/site" resolves differently on each transport — which is right.
     const cfg = resolveConfig({ ...both, SSH_BASE_DIR: "~/site" });
     expect(cfg.ftp.baseDir).toBe("~/site");
+    expect(() => validateConfig(cfg)).not.toThrow();
+  });
+
+  it("rejects a named home and names the variable", () => {
+    const cfg = resolveConfig({ ...sshOnly, SSH_BASE_DIR: "~other/site" });
+    expect(() => validateConfig(cfg)).toThrow(/SSH_BASE_DIR/);
+    expect(() => validateConfig(cfg)).toThrow(/only the logged-in account/);
+  });
+
+  it("names the borrowed variable when a named home is inherited", () => {
+    // FTP borrows SSH's bad value, so both profiles are bad; FTP is reported first.
+    const cfg = resolveConfig({ ...both, SSH_BASE_DIR: "~other/site" });
+    expect(cfg.ftp.baseDir).toBe("~other/site");
     expect(() => validateConfig(cfg)).toThrow(/FTP_BASE_DIR/);
   });
 
-  // ssh_exec expands "~" correctly, so a config that never registers the file
-  // tools is not broken and must keep working.
+  // ssh_exec expands "~" through the remote shell (quoteRemotePath), so a config
+  // that never registers the file tools was never affected either way.
   it("allows a tilde when the file tools are not served", () => {
     const cfg = resolveConfig({
       ...sshOnly,
