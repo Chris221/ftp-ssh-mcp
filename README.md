@@ -22,7 +22,7 @@ Published to npm and run with `npx` — there is nothing to clone or build. Requ
 ```json
 {
   "mcpServers": {
-    "remote": { "command": "npx", "args": ["-y", "ftp-ssh-mcp@0"] }
+    "remote": { "command": "npx", "args": ["-y", "ftp-ssh-mcp@1"] }
   }
 }
 ```
@@ -32,7 +32,7 @@ Windows:
 ```json
 {
   "mcpServers": {
-    "remote": { "command": "cmd", "args": ["/c", "npx", "-y", "ftp-ssh-mcp@0"] }
+    "remote": { "command": "cmd", "args": ["/c", "npx", "-y", "ftp-ssh-mcp@1"] }
   }
 }
 ```
@@ -67,7 +67,7 @@ VS Code uses `servers`, **not** `mcpServers`:
 ```json
 {
   "servers": {
-    "remote": { "command": "npx", "args": ["-y", "ftp-ssh-mcp@0"] }
+    "remote": { "command": "npx", "args": ["-y", "ftp-ssh-mcp@1"] }
   }
 }
 ```
@@ -82,7 +82,7 @@ Codex uses TOML with a snake_case `mcp_servers` table:
 ```toml
 [mcp_servers.remote]
 command = "npx"
-args = ["-y", "ftp-ssh-mcp@0"]
+args = ["-y", "ftp-ssh-mcp@1"]
 ```
 
 Windows:
@@ -90,10 +90,10 @@ Windows:
 ```toml
 [mcp_servers.remote]
 command = "cmd"
-args = ["/c", "npx", "-y", "ftp-ssh-mcp@0"]
+args = ["/c", "npx", "-y", "ftp-ssh-mcp@1"]
 ```
 
-Or add it from the shell: `codex mcp add remote -- npx -y ftp-ssh-mcp@0`
+Or add it from the shell: `codex mcp add remote -- npx -y ftp-ssh-mcp@1`
 
 </details>
 
@@ -117,7 +117,7 @@ If your client has no project directory (Claude Desktop), or you want several se
   "mcpServers": {
     "prod": {
       "command": "npx",
-      "args": ["-y", "ftp-ssh-mcp@0"],
+      "args": ["-y", "ftp-ssh-mcp@1"],
       "env": { "MCP_ENV_FILE": "/absolute/path/to/.env.prod" }
     }
   }
@@ -154,13 +154,13 @@ See [`.env.example`](./.env.example) for every variable and Configuration below 
 ### 3. Check it before you rely on it
 
 ```bash
-npx -y ftp-ssh-mcp@0 --selftest
+npx -y ftp-ssh-mcp@1 --selftest
 ```
 
 Run it from the directory holding your `.env`. It resolves configuration, registers tools and prints a one-line summary — **without opening a connection** — then exits. Use it to confirm the right capabilities came up before wiring the server into a client:
 
 ```
-ftp-ssh-mcp 0.9.2 selftest OK. env=.env, transport=ftp, host=example.com,
+ftp-ssh-mcp 1.0.0 selftest OK. env=.env, transport=ftp, host=example.com,
 capabilities=[files, ssh, mysql], tools=[file_list, file_upload, ...]
 ```
 
@@ -295,7 +295,7 @@ clear when the SDK updates its dependency.
 
 ## Troubleshooting
 
-Start with `npx -y ftp-ssh-mcp@0 --selftest` from the directory holding your `.env`. It reproduces everything the server does at startup except connecting, so it separates a configuration problem from a network or credentials one.
+Start with `npx -y ftp-ssh-mcp@1 --selftest` from the directory holding your `.env`. It reproduces everything the server does at startup except connecting, so it separates a configuration problem from a network or credentials one.
 
 | Symptom | Cause |
 | --- | --- |
