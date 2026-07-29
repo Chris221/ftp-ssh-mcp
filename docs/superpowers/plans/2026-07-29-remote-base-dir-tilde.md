@@ -830,7 +830,7 @@ Immediately after the variable table, add:
 
 `~` and `~/<dir>` are accepted and expanded to the account's own login directory: `realpath(".")` over SFTP, `PWD` over FTP. The lookup happens on connect, and only when there is a `~` to expand, so an absolute base directory costs nothing extra and the server still needs no network at startup.
 
-Each profile expands its own value against its own login directory. That is deliberate: on cPanel the FTP account is often chrooted so that its `~` is `/`, while SSH sees the real `/home/<user>` — so a `~/public_html` shared through `REMOTE_BASE_DIR` lands in the right place on both.
+Each profile expands its own value against its own login directory. That is deliberate: on many shared hosts the FTP account is chrooted so that its `~` is `/`, while SSH sees the real `/home/<user>` — so a `~/public_html` shared through `REMOTE_BASE_DIR` lands in the right place on both.
 
 A **named** home, `~other/site`, is refused at startup. Only the account that logged in can be located, so a named home would be sent to the server as a literal path. Use an absolute path for that case.
 ```

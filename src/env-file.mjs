@@ -15,8 +15,8 @@ const ASSIGNMENT = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
 
 // Both quotes must be the SAME character. The obvious /^["'](.*)["']$/ does not
 // require that, so `PASSWORD="hunter2'` silently became hunter2 — a wrong
-// secret on every connect, which on cPanel means repeated auth failures and
-// eventually a cPHulk lockout. Quoting is also the only way to keep leading or
+// secret on every connect, and enough repeated auth failures trip a shared
+// host's brute-force protection. Quoting is also the only way to keep leading or
 // trailing spaces in a value, so a quoted value must not be trimmed inside.
 const QUOTED = /^(["'])([\s\S]*)\1$/;
 

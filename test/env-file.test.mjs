@@ -137,9 +137,10 @@ describe("loadEnvFile", () => {
 
 // A password is the value most likely to contain a quote or significant
 // whitespace, and the one where quietly changing it costs the most: the wrong
-// secret goes out on every connect, and on cPanel enough failures trip cPHulk
-// and lock the account out at the host level. So the parser must either return
-// the value exactly or leave it visibly untouched — never half-strip it.
+// secret goes out on every connect, and enough failures trip a shared host's
+// brute-force protection and lock the account out at the host level. So the
+// parser must either return the value exactly or leave it visibly untouched —
+// never half-strip it.
 describe("loadEnvFile quoting", () => {
   const load = (contents) => {
     writeFileSync(path.join(dir, ".env"), contents);

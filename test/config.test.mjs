@@ -153,8 +153,8 @@ describe("cross-profile base dir fallback", () => {
   });
 
   it("never overrides a profile's own base dir", () => {
-    // The cPanel shape this protects: the FTP account is chrooted to the web
-    // root while SSH sees the whole home. Borrowing must not flatten that.
+    // The shared-hosting shape this protects: the FTP account is chrooted to
+    // the web root while SSH sees the whole home. Borrowing must not flatten that.
     const cfg = resolveConfig({
       ...both,
       FTP_BASE_DIR: "/home/u/public_html",
@@ -290,7 +290,7 @@ describe("secret-inheritance rule", () => {
       REMOTE_HOST: "h",
       REMOTE_USER: "shared",
       REMOTE_PASSWORD: "sekrit",
-      SSH_USER: "cpanel",
+      SSH_USER: "shellacct",
     });
     expect(cfg.ssh.password).toBe("");
     expect(cfg.ssh.privateKeyPath).toBe("");
@@ -326,8 +326,8 @@ describe("secret-inheritance rule", () => {
 // chat message to ask "is this the right host?" — so it must resolve through
 // open(), inheriting REMOTE_HOST_FINGERPRINT even for a profile that names its
 // own user. Routing it through secret() would silently drop the pin in exactly
-// the multi-account cPanel setup the secret rule exists for, and dropping a pin
-// means connecting to an unverified host.
+// the multi-account shared-hosting setup the secret rule exists for, and
+// dropping a pin means connecting to an unverified host.
 describe("ssh host fingerprint", () => {
   const FINGERPRINT = "SHA256:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 
@@ -346,7 +346,7 @@ describe("ssh host fingerprint", () => {
       REMOTE_HOST: "h",
       REMOTE_USER: "shared",
       REMOTE_HOST_FINGERPRINT: FINGERPRINT,
-      SSH_USER: "cpanel",
+      SSH_USER: "shellacct",
       SSH_PASSWORD: "own",
     });
     expect(cfg.ssh.hostFingerprint).toBe(FINGERPRINT);

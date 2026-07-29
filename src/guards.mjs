@@ -173,10 +173,10 @@ export function resolveRemotePath(input, baseDir = "") {
  * command itself has already been rejected if it contained anything that could
  * break out of this.
  *
- * Activation is deliberately non-fatal. cPanel's Node virtualenv may not exist
- * yet (the app has to be created first), and a missing one must not stop
- * unrelated commands like `ls` or `mysql` from running. When it is missing,
- * `npm` simply fails with "command not found", which says what is wrong.
+ * Activation is deliberately non-fatal. Hosting panels often only create the
+ * Node virtualenv when the app is first set up, and a missing script must not
+ * stop unrelated commands like `ls` or `mysql` from running. When it is
+ * missing, `npm` simply fails with "command not found", which says what is wrong.
  */
 export function buildRemoteCommand({ activate = "", baseDir, command }) {
   if (!baseDir) throw new Error("A baseDir is required.");

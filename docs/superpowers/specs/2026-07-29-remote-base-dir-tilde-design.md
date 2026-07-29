@@ -24,7 +24,7 @@ only the six file tools.
 
 Expand the tilde at connect time, from the account's own login directory:
 `realPath(".")` over SFTP, `PWD` after login over FTP. This is correct on every
-host layout — cPanel, a chrooted FTP account whose home is `/`, `/home2/...`
+host layout — a shared host with a chrooted FTP account whose home is `/`, `/home2/...`
 boxes, jailed shells — because the server is the one answering.
 
 Two alternatives were rejected. Probing once at startup would make a stdio MCP

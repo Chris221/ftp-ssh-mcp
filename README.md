@@ -6,7 +6,7 @@
 [![node](https://img.shields.io/node/v/ftp-ssh-mcp.svg)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/ftp-ssh-mcp.svg)](./LICENSE)
 
-An MCP server for working with a single remote host over FTP, FTPS, SFTP, and SSH — the kind of host a typical shared-hosting or cPanel deployment gives you, not a cloud provider's API. It groups its tools into three capability classes: file transfer (list, upload, download, mkdir, delete), shell execution over SSH, and a MySQL query wrapper that also runs over SSH. File transfer is the only capability enabled by default — shell execution and database access are both opt-in and stay off until you explicitly turn them on. Treat those two as equally dangerous: `mysql_query` runs arbitrary SQL on a production database and can escape to a shell, so it is not the milder of the pair.
+An MCP server for working with a single remote host over FTP, FTPS, SFTP, and SSH — the kind of host a typical shared-hosting plan or a plain VPS gives you, not a cloud provider's API. It groups its tools into three capability classes: file transfer (list, upload, download, mkdir, delete), shell execution over SSH, and a MySQL query wrapper that also runs over SSH. File transfer is the only capability enabled by default — shell execution and database access are both opt-in and stay off until you explicitly turn them on. Treat those two as equally dangerous: `mysql_query` runs arbitrary SQL on a production database and can escape to a shell, so it is not the milder of the pair.
 
 ## Install
 
@@ -199,7 +199,7 @@ Variables are normally read from process environment, but the server also loads 
 
 ### Secret inheritance
 
-Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely. Secrets (`PASSWORD`, `PRIVATE_KEY`, `PASSPHRASE`) fall back to `REMOTE_PASSWORD` **only when the profile does not set its own `*_USER`**. A profile that names its own user is declaring a distinct identity, and sending that identity a password meant for a different account causes repeated authentication failures — on cPanel specifically, enough failures trip cPHulk and lock the account out at the host level. If `FTP_USER` (or `SSH_USER`) is set, its password must be set explicitly too.
+Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely. Secrets (`PASSWORD`, `PRIVATE_KEY`, `PASSPHRASE`) fall back to `REMOTE_PASSWORD` **only when the profile does not set its own `*_USER`**. A profile that names its own user is declaring a distinct identity, and sending that identity a password meant for a different account causes repeated authentication failures — on many shared hosts, enough failures trip brute-force protection and lock the account out at the host level. If `FTP_USER` (or `SSH_USER`) is set, its password must be set explicitly too.
 
 ### Variables
 
@@ -246,7 +246,7 @@ A `DB_USER` with no resolvable `DB_PASSWORD` is not treated as an error: the rem
 
 `ssh_exec` and `mysql_query` resolve the same setting a different way: the raw `~` is handed to the remote login shell, which expands `$HOME` itself on every command, so there is no connect-time lookup on that path at all. The two mechanisms agree in practice, since they resolve against the same logged-in account — only *when* and *how* the expansion happens differ.
 
-Each profile expands its own value against its own login directory. That is deliberate: on cPanel the FTP account is often chrooted so that its `~` is `/`, while SSH sees the real `/home/<user>` — so a `~/public_html` shared through `REMOTE_BASE_DIR` lands in the right place on both.
+Each profile expands its own value against its own login directory. That is deliberate: on many shared hosts the FTP account is chrooted so that its `~` is `/`, while SSH sees the real `/home/<user>` — so a `~/public_html` shared through `REMOTE_BASE_DIR` lands in the right place on both.
 
 A **named** home, `~other/site`, is refused at startup — but only when the `files` tools are registered; a config that excludes them (e.g. `MCP_CAPABILITIES=ssh`) starts fine and only fails later, the first time `ssh_exec` or `mysql_query` tries to `cd` there. Only the account that logged in can be located, so a named home would be sent to the server as a literal path. Use an absolute path for that case.
 

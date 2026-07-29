@@ -97,7 +97,7 @@ describe('quoteRemotePath', () => {
   // host. These paths come from config (SSH_BASE_DIR, SSH_ACTIVATE), which is
   // exactly where a tilde is most likely to appear.
   it('expands a leading tilde while still quoting the rest', () => {
-    expect(quoteRemotePath('~/parkavebeads.com')).toBe('"$HOME"/\'parkavebeads.com\'');
+    expect(quoteRemotePath('~/example.com')).toBe('"$HOME"/\'example.com\'');
   });
 
   it('handles a bare tilde', () => {
@@ -121,19 +121,19 @@ describe('quoteRemotePath', () => {
 });
 
 describe('buildRemoteCommand', () => {
-  const activate = '~/nodevenv/ParkAveBeads.com/22/bin/activate';
-  const baseDir = '~/ParkAveBeads.com';
+  const activate = '~/nodevenv/example.com/22/bin/activate';
+  const baseDir = '~/example.com';
 
   it('sources the venv, then changes directory, then runs the command', () => {
     expect(buildRemoteCommand({ activate, baseDir, command: 'npm install --omit=dev' })).toBe(
-      '. "$HOME"/\'nodevenv/ParkAveBeads.com/22/bin/activate\' </dev/null 2>/dev/null || : && ' +
-        'cd "$HOME"/\'ParkAveBeads.com\' && npm install --omit=dev',
+      '. "$HOME"/\'nodevenv/example.com/22/bin/activate\' </dev/null 2>/dev/null || : && ' +
+        'cd "$HOME"/\'example.com\' && npm install --omit=dev',
     );
   });
 
   it('does not abort the chain when the venv is missing', () => {
-    // The venv does not exist until the cPanel Node app is created. A missing
-    // one must not stop `ls` or `mysql` from working.
+    // Hosting panels often only create the venv when the app is first set
+    // up. A missing one must not stop `ls` or `mysql` from working.
     const built = buildRemoteCommand({ activate, baseDir, command: 'pwd' });
     expect(built).toContain('|| :');
     expect(built).toMatch(/\|\| : && cd /);
@@ -141,7 +141,7 @@ describe('buildRemoteCommand', () => {
 
   it('omits activation entirely when none is configured', () => {
     expect(buildRemoteCommand({ baseDir, command: 'pwd' })).toBe(
-      'cd "$HOME"/\'ParkAveBeads.com\' && pwd',
+      'cd "$HOME"/\'example.com\' && pwd',
     );
   });
 

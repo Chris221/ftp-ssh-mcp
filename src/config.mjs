@@ -51,7 +51,7 @@ function normalizeBase(raw) {
   // Keep a lone "/". Stripping it to "" makes an explicitly configured root
   // indistinguishable from an unset one, and the cross-profile fallback below
   // then lends this profile the OTHER profile's absolute path. That silently
-  // breaks the common cPanel shape: an FTP account chrooted to its own home has
+  // breaks a common shared-hosting shape: an FTP account chrooted to its own home has
   // "/" as its real, correct base, and borrowing SSH's "/home/u/site" points
   // every file call at a path that does not exist inside the chroot — where the
   // server answers with an empty listing rather than an error.
@@ -75,8 +75,8 @@ function servesFiles(config) {
  * Non-secrets fall back to REMOTE_* freely. Secrets fall back ONLY when the
  * profile does not name its own user: setting a profile's user declares a
  * distinct identity, and inheriting a shared password would then send the wrong
- * secret on every connect. On cPanel that means repeated auth failures and
- * eventually a cPHulk lockout.
+ * secret on every connect. Shared hosts tend to answer repeated auth failures
+ * with brute-force protection that locks the account out at the host level.
  */
 function reader(env, prefix) {
   const ownUser = Boolean(env[`${prefix}_USER`]);
@@ -168,8 +168,8 @@ export function resolveConfig(env = process.env) {
   // completely unconfined file tools on the default (ftp) transport. Confinement
   // is stated as a guarantee in the README; borrowing the other profile's root
   // is what keeps that true. It is a fallback, never an override — a profile
-  // that sets its own root always keeps it, because on cPanel the FTP account is
-  // often chrooted where SSH sees the whole home.
+  // that sets its own root always keeps it, because on shared hosts the FTP
+  // account is often chrooted where SSH sees the whole home.
   if (ftp && !ftp.baseDir && ssh && ssh.baseDir) ftp.baseDir = ssh.baseDir;
   if (ssh && !ssh.baseDir && ftp && ftp.baseDir) ssh.baseDir = ftp.baseDir;
 

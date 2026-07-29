@@ -8,8 +8,8 @@ import { withSftp } from "./sftp.mjs";
 
 /**
  * The active file profile and its base directory for the configured transport.
- * Each profile has its own base dir, because on cPanel the FTP account is often
- * chrooted while SSH sees the full home.
+ * Each profile has its own base dir, because on shared hosts the FTP account
+ * is often chrooted while SSH sees the full home.
  */
 export function fileProfile(config, override) {
   const transport = override || config.files.transport;
