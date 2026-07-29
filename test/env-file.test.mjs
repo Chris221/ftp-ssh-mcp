@@ -1,7 +1,17 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+// expandHome (guards.mjs) resolves "~" against os.homedir(). Point it at the
+// test's temp dir so a tilde test never touches the real home directory. The
+// mock defers to the real homedir until a test opts in by setting `home`.
+const mocked = vi.hoisted(() => ({ home: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal();
+  const homedir = () => mocked.home || actual.homedir();
+  return { ...actual, homedir, default: { ...actual.default, homedir } };
+});
 
 import { loadEnvFile } from "../src/env-file.mjs";
 
@@ -85,6 +95,23 @@ describe("loadEnvFile", () => {
 
     expect(loadEnvFile(env, dir)).toBe(path.join(dir, "custom.env"));
     expect(env.A).toBe("relative");
+  });
+
+  it("expands a leading ~ in MCP_ENV_FILE like SSH_PRIVATE_KEY gets", () => {
+    // An MCP client's JSON config performs no shell expansion, so "~/…" is
+    // the natural way to write a home path there — and since an unreadable
+    // MCP_ENV_FILE is now a hard startup failure, refusing the tilde form
+    // would reject the most obvious spelling of "outside the project".
+    try {
+      mocked.home = dir;
+      writeFileSync(path.join(dir, "home.env"), "A=fromhome\n");
+      const env = { MCP_ENV_FILE: "~/home.env" };
+
+      expect(loadEnvFile(env, dir)).toBe(path.join(dir, "home.env"));
+      expect(env.A).toBe("fromhome");
+    } finally {
+      mocked.home = "";
+    }
   });
 
   it("preserves values containing = characters unquoted", () => {

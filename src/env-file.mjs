@@ -9,6 +9,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import { expandHome } from "./guards.mjs";
+
 const ASSIGNMENT = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
 
 // Both quotes must be the SAME character. The obvious /^["'](.*)["']$/ does not
@@ -63,7 +65,11 @@ function applyLines(env, raw) {
  */
 export function loadEnvFile(env = process.env, cwd = process.cwd()) {
   if (env.MCP_ENV_FILE) {
-    const file = path.resolve(cwd, env.MCP_ENV_FILE);
+    // expandHome for the same reason SSH_PRIVATE_KEY gets it: an MCP client's
+    // JSON config performs no shell expansion, so "~/…" is the natural way to
+    // write a home path there — and an unreadable MCP_ENV_FILE is a hard
+    // failure, so the tilde form must not be refused.
+    const file = path.resolve(cwd, expandHome(env.MCP_ENV_FILE));
     let raw;
     try {
       raw = readFileSync(file, "utf8");
