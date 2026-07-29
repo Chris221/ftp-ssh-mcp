@@ -15,6 +15,30 @@ function flag(value) {
   return value === "true";
 }
 
+/**
+ * Parse an integer setting; unset or blank means the default.
+ *
+ * Anything else must be a whole number in range. The old `Number(raw) || def`
+ * shape turned garbage into the default silently — Number("2l") is NaN, and
+ * `NaN || 21` is 21 — so a typo'd FTP_PORT connected to port 21 as if nothing
+ * were wrong. An explicitly set value that cannot be honoured is an error
+ * naming the variable, like every other bad setting.
+ */
+function integer(env, name, fallback, max = Number.MAX_SAFE_INTEGER) {
+  const raw = String(env[name] ?? "").trim();
+  if (!raw) return fallback;
+  if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > max) {
+    const range =
+      max === Number.MAX_SAFE_INTEGER
+        ? "a whole number (1 or more)"
+        : `a whole number between 1 and ${max}`;
+    throw new Error(
+      `${name} is "${env[name]}", but must be ${range}. Unset it to use the default (${fallback}).`
+    );
+  }
+  return Number(raw);
+}
+
 function normalizeBase(raw) {
   if (!raw) return "";
   const normalized = posix.normalize(String(raw).replace(/\\/g, "/"));
@@ -72,12 +96,12 @@ function resolveFtp(env) {
   if (!host && !user) return null;
   return {
     host,
-    port: Number(env.FTP_PORT) || 21,
+    port: integer(env, "FTP_PORT", 21, 65535),
     user,
     password: r.secret("PASSWORD"),
     baseDir: normalizeBase(r.open("BASE_DIR")),
     tlsRejectUnauthorized: env.FTP_TLS_REJECT_UNAUTHORIZED !== "false",
-    timeout: Number(env.FTP_TIMEOUT_MS) || 30000,
+    timeout: integer(env, "FTP_TIMEOUT_MS", 30000),
   };
 }
 
@@ -88,7 +112,7 @@ function resolveSsh(env) {
   if (!host && !user) return null;
   return {
     host,
-    port: Number(env.SSH_PORT) || 22,
+    port: integer(env, "SSH_PORT", 22, 65535),
     user,
     password: r.secret("PASSWORD"),
     privateKeyPath: expandHome(r.secret("PRIVATE_KEY")),
@@ -105,8 +129,8 @@ function resolveSsh(env) {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
-    timeout: Number(env.SSH_TIMEOUT_MS) || 120000,
-    maxOutputBytes: Number(env.SSH_MAX_OUTPUT) || 100000,
+    timeout: integer(env, "SSH_TIMEOUT_MS", 120000),
+    maxOutputBytes: integer(env, "SSH_MAX_OUTPUT", 100000),
   };
 }
 
@@ -323,6 +347,20 @@ export function configWarnings(config, { quiet = false } = {}) {
         );
       }
     }
+  }
+
+  // SSH_ALLOW_EXEC=true is a deliberate opt-in, but the ssh capability also
+  // needs a base directory (see isConfigured in capabilities/ssh.mjs), and
+  // without one it registers nothing. The MCP_CAPABILITIES check below only
+  // speaks when that allowlist is set, so this is the only place the common
+  // "opted into exec, forgot the base dir" configuration gets a diagnostic.
+  // Informational rather than security: nothing is weaker than intended, a
+  // requested tool is just absent.
+  if (config.ssh && config.ssh.allowExec && !config.ssh.baseDir) {
+    warn(
+      'SSH_ALLOW_EXEC is "true", but ssh_exec was not registered: it also requires ' +
+        "SSH_BASE_DIR (or REMOTE_BASE_DIR), so commands run inside a known directory."
+    );
   }
 
   // An allowlist naming a capability that never activates is silent otherwise:

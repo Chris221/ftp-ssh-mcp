@@ -30,6 +30,54 @@ describe("profile detection", () => {
   });
 });
 
+// A numeric setting that did not parse used to become its default silently:
+// Number("2l") is NaN, and `NaN || 21` is 21 — so a typo'd FTP_PORT connected
+// to port 21 as if nothing were wrong, and a mistyped SSH_TIMEOUT_MS quietly
+// reverted to two minutes. An explicitly set value that cannot be honoured
+// must be an error naming the variable, like every other bad setting.
+describe("numeric variables", () => {
+  it("rejects a non-numeric FTP_PORT instead of silently using the default", () => {
+    expect(() => resolveConfig({ ...ftpOnly, FTP_PORT: "2l" })).toThrow(/FTP_PORT/);
+  });
+
+  it("rejects a port outside 1..65535", () => {
+    expect(() => resolveConfig({ ...sshOnly, SSH_PORT: "70000" })).toThrow(/SSH_PORT/);
+    expect(() => resolveConfig({ ...ftpOnly, FTP_PORT: "0" })).toThrow(/FTP_PORT/);
+  });
+
+  it("rejects garbage, zero and negatives for timeouts and the output cap", () => {
+    expect(() => resolveConfig({ ...ftpOnly, FTP_TIMEOUT_MS: "abc" })).toThrow(/FTP_TIMEOUT_MS/);
+    expect(() => resolveConfig({ ...sshOnly, SSH_TIMEOUT_MS: "0" })).toThrow(/SSH_TIMEOUT_MS/);
+    expect(() => resolveConfig({ ...sshOnly, SSH_MAX_OUTPUT: "-5" })).toThrow(/SSH_MAX_OUTPUT/);
+  });
+
+  it("accepts explicit valid values", () => {
+    const cfg = resolveConfig({
+      ...ftpOnly,
+      ...sshOnly,
+      FTP_PORT: "2121",
+      FTP_TIMEOUT_MS: "5000",
+      SSH_PORT: "2222",
+      SSH_TIMEOUT_MS: "60000",
+      SSH_MAX_OUTPUT: "5",
+    });
+    expect(cfg.ftp.port).toBe(2121);
+    expect(cfg.ftp.timeout).toBe(5000);
+    expect(cfg.ssh.port).toBe(2222);
+    expect(cfg.ssh.timeout).toBe(60000);
+    expect(cfg.ssh.maxOutputBytes).toBe(5);
+  });
+
+  it("keeps the defaults when unset or blank", () => {
+    const cfg = resolveConfig({ ...ftpOnly, ...sshOnly, FTP_PORT: "", SSH_TIMEOUT_MS: " " });
+    expect(cfg.ftp.port).toBe(21);
+    expect(cfg.ftp.timeout).toBe(30000);
+    expect(cfg.ssh.port).toBe(22);
+    expect(cfg.ssh.timeout).toBe(120000);
+    expect(cfg.ssh.maxOutputBytes).toBe(100000);
+  });
+});
+
 describe("REMOTE_* fallback", () => {
   it("inherits host from REMOTE_HOST", () => {
     const cfg = resolveConfig({ REMOTE_HOST: "shared", FTP_USER: "u", FTP_PASSWORD: "p" });
@@ -687,6 +735,47 @@ describe("configWarnings", () => {
     it("says nothing about an unknown name, which is a startup error instead", () => {
       const cfg = resolveConfig({ ...quietSsh, MCP_CAPABILITIES: "files,nope" });
       expect(configWarnings(cfg)).toStrictEqual([]);
+    });
+  });
+
+  // SSH_ALLOW_EXEC=true is a deliberate opt-in, but the ssh capability also
+  // requires a base directory — and without one it silently registered no
+  // tools. Unlike the MCP_CAPABILITIES case above, nothing mentioned why the
+  // tool the user explicitly asked for was missing.
+  describe("exec opted in but not registered", () => {
+    const execWarning =
+      'SSH_ALLOW_EXEC is "true", but ssh_exec was not registered: it also requires ' +
+      "SSH_BASE_DIR (or REMOTE_BASE_DIR), so commands run inside a known directory.";
+
+    it("warns when SSH_ALLOW_EXEC=true but no base directory resolves", () => {
+      const cfg = resolveConfig({ ...sshOnly, SSH_HOST_FINGERPRINT: pinned, SSH_ALLOW_EXEC: "true" });
+      expect(configWarnings(cfg)).toStrictEqual([unconfined("sftp", "SSH_BASE_DIR"), execWarning]);
+    });
+
+    it("does not warn when the base dir arrives via the cross-profile fallback", () => {
+      // The borrowed base dir activates the capability for real, so there is
+      // nothing to warn about — and the warning must track what actually
+      // registers, not which variable the user typed.
+      const cfg = resolveConfig({
+        ...ftpOnly,
+        ...sshOnly,
+        FTP_BASE_DIR: "/site",
+        SSH_HOST_FINGERPRINT: pinned,
+        SSH_ALLOW_EXEC: "true",
+      });
+      expect(configWarnings(cfg)).toStrictEqual([]);
+    });
+
+    it("does not warn when exec was never requested", () => {
+      const cfg = resolveConfig({ ...sshOnly, SSH_HOST_FINGERPRINT: pinned });
+      expect(configWarnings(cfg)).toStrictEqual([unconfined("sftp", "SSH_BASE_DIR")]);
+    });
+
+    it("is informational: quiet drops it but keeps the security warning beside it", () => {
+      const cfg = resolveConfig({ ...sshOnly, SSH_HOST_FINGERPRINT: pinned, SSH_ALLOW_EXEC: "true" });
+      expect(configWarnings(cfg, { quiet: true })).toStrictEqual([
+        unconfined("sftp", "SSH_BASE_DIR"),
+      ]);
     });
   });
 
