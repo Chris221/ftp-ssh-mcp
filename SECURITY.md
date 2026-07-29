@@ -65,6 +65,12 @@ These are documented behaviours, not vulnerabilities:
   it is tracked as a normal enhancement.
 - **Anything requiring an attacker who already controls the configured account,
   the `.env` file, or the machine the server runs on.**
+- **A server that misreports its login directory.** When a base directory is
+  written as `~`, the confinement root is whatever the host answers for
+  `realpath(".")` or `PWD`, so a hostile server could widen the fence by
+  reporting `/`. It could also serve any file it liked for any path, so this
+  grants it nothing it did not already have. Use an absolute base directory if
+  you want the root fixed client-side.
 
 Reports about the host being reachable at all, or about a configuration the
 operator chose (`FTP_SECURITY=ftp`, `FTP_TLS_REJECT_UNAUTHORIZED=false`,

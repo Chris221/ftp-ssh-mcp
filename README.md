@@ -195,12 +195,12 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `REMOTE_HOST` | — | Shared host, used when a profile does not set its own. |
 | `REMOTE_USER` | — | Shared user. |
 | `REMOTE_PASSWORD` | — | Shared secret. Only inherited by a profile with no `*_USER` of its own. |
-| `REMOTE_BASE_DIR` | — | Shared base directory that remote paths are confined to. |
+| `REMOTE_BASE_DIR` | — | Shared base directory that remote paths are confined to. A leading `~` is expanded to the account's login directory — see below. |
 | `FTP_HOST` | inherits `REMOTE_HOST` | |
 | `FTP_PORT` | `21` | |
 | `FTP_USER` | inherits `REMOTE_USER` | |
 | `FTP_PASSWORD` | see secret inheritance | |
-| `FTP_BASE_DIR` | inherits `REMOTE_BASE_DIR`, then `SSH_BASE_DIR` | Base directory the `files` tools are confined to on this transport. |
+| `FTP_BASE_DIR` | inherits `REMOTE_BASE_DIR`, then `SSH_BASE_DIR` | Base directory the `files` tools are confined to on this transport. Accepts `~` or `~/<dir>`. |
 | `FTP_SECURITY` | `ftps` | `ftps` (explicit TLS), `ftp` (plaintext), or `ftps-implicit`. |
 | `FTP_TLS_REJECT_UNAUTHORIZED` | `true` | Set `false` to accept a self-signed or otherwise unverifiable certificate. |
 | `FTP_TIMEOUT_MS` | `30000` | |
@@ -211,7 +211,7 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `SSH_PRIVATE_KEY` | see secret inheritance | Local path to a private key. A leading `~` is expanded. |
 | `SSH_PASSPHRASE` | see secret inheritance | Passphrase for `SSH_PRIVATE_KEY`. |
 | `SSH_HOST_FINGERPRINT` | inherits `REMOTE_HOST_FINGERPRINT` | SHA-256 host key fingerprint to pin. Accepts the `SHA256:<base64>` form or a bare hex digest. Not a secret, so it inherits freely. Unset means any host key is accepted, and the server warns at startup. See Security below. |
-| `SSH_BASE_DIR` | inherits `REMOTE_BASE_DIR`, then `FTP_BASE_DIR` | Required for `ssh_exec` and `mysql_query`, which both need a known working directory. Also the confinement root for `files` calls on the sftp transport. |
+| `SSH_BASE_DIR` | inherits `REMOTE_BASE_DIR`, then `FTP_BASE_DIR` | Required for `ssh_exec` and `mysql_query`, which both need a known working directory. Also the confinement root for `files` calls on the sftp transport. Accepts `~` or `~/<dir>`. |
 | `SSH_ACTIVATE` | — | Remote path to a script (e.g. a Node virtualenv's `activate`) sourced before every command. Missing file is non-fatal — the command still runs. |
 | `SSH_TIMEOUT_MS` | `120000` | Connection and per-command timeout. |
 | `SSH_MAX_OUTPUT` | `100000` | Combined stdout+stderr byte cap per command; output beyond this is truncated, not buffered. |
@@ -226,6 +226,14 @@ Non-secret settings (`HOST`, `USER`, `BASE_DIR`) fall back to `REMOTE_*` freely.
 | `SSH_ALLOW_EXEC` | `false` | Must be `true` for `ssh_exec` to be registered at all. |
 
 A `DB_USER` with no resolvable `DB_PASSWORD` is not treated as an error: the remote `mysql` client can legitimately get credentials from `~/.my.cnf` or a trusted local socket instead of a password on the connection. The server prints a warning to stderr at startup rather than refusing to run, and if a query then fails to authenticate, `mysql_query`'s error message names `DB_PASSWORD` again so the cause is visible from inside the MCP client, not just in a startup log you may not have seen.
+
+#### Tilde base directories
+
+`~` and `~/<dir>` are accepted and expanded to the account's own login directory: `realpath(".")` over SFTP, `PWD` over FTP. The lookup happens on connect, and only when there is a `~` to expand, so an absolute base directory costs nothing extra and the server still needs no network at startup.
+
+Each profile expands its own value against its own login directory. That is deliberate: on cPanel the FTP account is often chrooted so that its `~` is `/`, while SSH sees the real `/home/<user>` — so a `~/public_html` shared through `REMOTE_BASE_DIR` lands in the right place on both.
+
+A **named** home, `~other/site`, is refused at startup. Only the account that logged in can be located, so a named home would be sent to the server as a literal path. Use an absolute path for that case.
 
 ## Security
 
@@ -275,6 +283,7 @@ Start with `npx -y ftp-ssh-mcp@0 --selftest` from the directory holding your `.e
 | Warning about an unverified host key | `SSH_HOST_FINGERPRINT` is unset. Expected until you pin it, and not a failure — see Security. |
 | Warning that path confinement is disabled | The transport's profile has no base directory and neither does the other one. Set `REMOTE_BASE_DIR`. |
 | Uploads land somewhere unexpected | Remote paths are relative to the profile's base directory, and each profile has its own. A per-call `transport` override resolves against *that* profile's base directory, not the default one. |
+| A `~` base directory resolves somewhere unexpected | `~` is the **login** directory the server reports, not `/home/<user>` by definition. A chrooted FTP account reports `/`, so `~/public_html` is `/public_html` there while SSH resolves the same value to `/home/<user>/public_html`. Both are correct for their account; set that profile's own `*_BASE_DIR` to an absolute path if you need to override it. |
 
 ## Development
 
