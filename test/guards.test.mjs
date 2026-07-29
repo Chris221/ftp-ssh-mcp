@@ -121,12 +121,12 @@ describe('quoteRemotePath', () => {
 });
 
 describe('buildRemoteCommand', () => {
-  const activate = '~/nodevenv/example.com/22/bin/activate';
+  const activate = '~/envs/example.com/bin/activate';
   const baseDir = '~/example.com';
 
   it('sources the venv, then changes directory, then runs the command', () => {
     expect(buildRemoteCommand({ activate, baseDir, command: 'npm install --omit=dev' })).toBe(
-      '. "$HOME"/\'nodevenv/example.com/22/bin/activate\' </dev/null 2>/dev/null || : && ' +
+      '. "$HOME"/\'envs/example.com/bin/activate\' </dev/null 2>/dev/null || : && ' +
         'cd "$HOME"/\'example.com\' && npm install --omit=dev',
     );
   });
