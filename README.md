@@ -160,7 +160,7 @@ npx -y ftp-ssh-mcp@1 --selftest
 Run it from the directory holding your `.env`. It resolves configuration, registers tools and prints a one-line summary — **without opening a connection** — then exits. Use it to confirm the right capabilities came up before wiring the server into a client:
 
 ```
-ftp-ssh-mcp 1.0.0 selftest OK. env=.env, transport=ftp, host=example.com,
+ftp-ssh-mcp 1.0.1 selftest OK. env=.env, transport=ftp, host=example.com,
 capabilities=[files, ssh, mysql], tools=[file_list, file_upload, ...]
 ```
 
