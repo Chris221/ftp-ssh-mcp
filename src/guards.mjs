@@ -148,10 +148,18 @@ export function resolveRemotePath(input, baseDir = "") {
     return posix.normalize(cleaned);
   }
   const joined = posix.normalize(posix.join(baseDir, cleaned));
+  // A base of exactly "." (reachable: normalizeBase keeps it, and a relative
+  // base is a warning rather than an error) cannot be prefix-checked —
+  // posix.join(".", "x") is "x", no "./" survives normalization — and does
+  // not need to be: ".." was rejected above and join() rebases absolute
+  // inputs, so every result is already relative to the session directory
+  // that "." names. The old prefix fence matched nothing and threw a false
+  // "escapes" error for every input except a literal ".".
+  if (baseDir === ".") return joined;
   const fence = baseDir.endsWith("/") ? baseDir : `${baseDir}/`;
-  // This fence is unreachable in practice — the .. check above catches every
-  // input that could escape. Retained deliberately as a backstop should the
-  // earlier check ever be relaxed.
+  // For any other base this fence is unreachable in practice — the .. check
+  // above catches every input that could escape. Retained deliberately as a
+  // backstop should the earlier check ever be relaxed.
   if (joined !== baseDir && !joined.startsWith(fence)) {
     throw new Error("remotePath escapes the configured base directory.");
   }
@@ -178,7 +186,11 @@ export function buildRemoteCommand({ activate = "", baseDir, command }) {
   // `.` rather than `source` so this works under a plain POSIX shell too.
   // `|| :` keeps a missing venv from aborting the chain; POSIX parses the
   // sequence left to right, so this reads as (activate || true) && cd && cmd.
-  if (activate) steps.push(`. ${quoteRemotePath(activate)} 2>/dev/null || :`);
+  // `</dev/null` because the sourced script shares the shell's stdin, whose
+  // first line may be a secret (mysql_query's password framing) — a script
+  // that reads stdin gets EOF instead of the secret, and the real stdin is
+  // untouched for the steps after it.
+  if (activate) steps.push(`. ${quoteRemotePath(activate)} </dev/null 2>/dev/null || :`);
   steps.push(`cd ${quoteRemotePath(baseDir)}`);
   steps.push(command);
 

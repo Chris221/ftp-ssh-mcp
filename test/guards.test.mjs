@@ -126,7 +126,7 @@ describe('buildRemoteCommand', () => {
 
   it('sources the venv, then changes directory, then runs the command', () => {
     expect(buildRemoteCommand({ activate, baseDir, command: 'npm install --omit=dev' })).toBe(
-      '. "$HOME"/\'nodevenv/ParkAveBeads.com/22/bin/activate\' 2>/dev/null || : && ' +
+      '. "$HOME"/\'nodevenv/ParkAveBeads.com/22/bin/activate\' </dev/null 2>/dev/null || : && ' +
         'cd "$HOME"/\'ParkAveBeads.com\' && npm install --omit=dev',
     );
   });
@@ -143,6 +143,15 @@ describe('buildRemoteCommand', () => {
     expect(buildRemoteCommand({ baseDir, command: 'pwd' })).toBe(
       'cd "$HOME"/\'ParkAveBeads.com\' && pwd',
     );
+  });
+
+  it('firewalls the activate script from stdin', () => {
+    // The command's stdin may start with a secret (mysql_query delivers the
+    // DB password as the first line), and a sourced activate script shares
+    // the shell's stdin. Redirecting the source step from /dev/null means a
+    // script that reads stdin gets EOF, never the secret.
+    const built = buildRemoteCommand({ activate, baseDir, command: 'pwd' });
+    expect(built).toContain('</dev/null 2>/dev/null || :');
   });
 
   it('requires a baseDir and a command', () => {
@@ -281,6 +290,21 @@ describe("resolveRemotePath base fence", () => {
     expect(() => resolveRemotePath("../outside", "/home/site/public_html")).not.toThrow(
       /FTP_BASE_DIR/
     );
+  });
+
+  it("confines under a base directory of '.' instead of falsely rejecting everything", () => {
+    // posix.join(".", "index.html") is "index.html" — no "./" prefix survives
+    // normalization — so a prefix fence built from "." matched nothing and
+    // threw "escapes the configured base directory" for every input except a
+    // literal ".". A "." base is reachable: normalizeBase keeps it, and
+    // configWarnings deliberately allows relative bases with only a warning.
+    expect(resolveRemotePath("index.html", ".")).toBe("index.html");
+    expect(resolveRemotePath("a/b.txt", ".")).toBe("a/b.txt");
+    expect(resolveRemotePath(".", ".")).toBe(".");
+    // Absolute inputs rebase under the session directory, same as any base.
+    expect(resolveRemotePath("/etc/passwd", ".")).toBe("etc/passwd");
+    // ".." stays rejected — confinement, not a free pass.
+    expect(() => resolveRemotePath("../outside", ".")).toThrow(/'\.\.' segments/);
   });
 });
 
