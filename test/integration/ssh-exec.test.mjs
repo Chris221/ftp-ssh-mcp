@@ -28,7 +28,7 @@
 // "nothing was sent to the server" is asserted against the fixture, not
 // inferred from an error message.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -194,6 +194,122 @@ describe("sshRun (transport level)", () => {
     };
 
     await expect(sshRun(cfg.ssh, "echo hi")).rejects.toThrow(/timed out/i);
+  });
+
+  it("closes the remote command's stdin even when no stdin is supplied", async () => {
+    // `cat`, `tail` and `mysql` — all in the default allowlist — read stdin
+    // until EOF when given no file argument. A client that never half-closes
+    // its side leaves them blocked forever, which surfaces as a bogus timeout.
+    // This fixture only answers once it has seen EOF, so the test can only
+    // pass if sshRun ends the stream it is not writing to.
+    const cfg = resolveConfig(baseEnv(server.port, { SSH_TIMEOUT_MS: "2000" }));
+    server.onExec = (command, stream) => {
+      // resume() puts the readable side in flowing mode; a Readable that is
+      // never read holds back its "end" event even after EOF arrives.
+      stream.resume();
+      stream.on("end", () => respond(stream, { stdout: "saw-eof\n", code: 0 }));
+    };
+
+    const result = await sshRun(cfg.ssh, "echo hi");
+
+    expect(result.stdout).toBe("saw-eof\n");
+    expect(result.code).toBe(0);
+  });
+
+  it("reports a signal-terminated command as killed, not exit 0", async () => {
+    // An OOM-killed `npm install` on shared hosting arrives as exit-signal
+    // with no exit-status. Defaulting the missing status to 0 turns a dead
+    // deploy step into a reported success.
+    server.onExec = (command, stream) => {
+      stream.write("partial\n");
+      stream.exit("KILL");
+      stream.end();
+    };
+
+    const result = await sshRun(config.ssh, "echo hi");
+
+    expect(result.code).toBe(null);
+    expect(result.signal).toBe("SIGKILL");
+
+    const rendered = formatResult("echo hi", result, config.ssh.maxOutputBytes);
+    expect(rendered).toContain("killed by SIGKILL");
+    expect(rendered).not.toContain("exit 0");
+  });
+
+  it("caps output in bytes, not UTF-16 code units", async () => {
+    // SSH_MAX_OUTPUT is documented as a byte cap. "é" is one code unit but
+    // two UTF-8 bytes, so a cap counted in code units would keep 8 of them
+    // (16 bytes) where the byte budget only has room for 5.
+    const cfg = resolveConfig(baseEnv(server.port, { SSH_MAX_OUTPUT: "10" }));
+    server.onExec = (command, stream) => {
+      stream.write("é".repeat(8));
+      stream.exit(0);
+      stream.end();
+    };
+
+    const result = await sshRun(cfg.ssh, "echo hi");
+
+    expect(result.stdout).toBe("é".repeat(5));
+    expect(result.truncated).toBe(true);
+  });
+
+  it("does not garble a multi-byte character split across chunks", async () => {
+    // TCP chunking does not respect character boundaries. Decoding each chunk
+    // independently turns the split character into replacement-character
+    // garbage on both sides of the seam.
+    server.onExec = (command, stream) => {
+      const bytes = Buffer.from("héllo", "utf8"); // é = 0xC3 0xA9
+      stream.write(bytes.subarray(0, 2)); // ends mid-character
+      stream.write(bytes.subarray(2));
+      stream.exit(0);
+      stream.end();
+    };
+
+    const result = await sshRun(config.ssh, "echo hi");
+
+    expect(result.stdout).toBe("héllo");
+  });
+
+  it("asks the server to kill the remote process when the timeout fires", async () => {
+    // Closing the channel abandons the remote process; only a signal request
+    // gives the server a chance to actually end it (OpenSSH honours these
+    // since 7.9).
+    //
+    // The fixture cannot observe the request: ssh2's SERVER marks the whole
+    // session `_ending` as soon as the client half-closes stdin (which sshRun
+    // now does immediately) and silently discards every channel request after
+    // that — even though a signal after EOF is protocol-legal. So observe at
+    // the client's own wire boundary instead: a PASS-THROUGH spy on ssh2's
+    // packet writer, which still runs the real implementation. If the signal
+    // call is removed from sshRun, no packet writer runs and this fails.
+    const { default: Protocol } = await import("ssh2/lib/protocol/Protocol.js");
+    const spy = vi.spyOn(Protocol.prototype, "signal");
+    try {
+      const cfg = resolveConfig(baseEnv(server.port, { SSH_TIMEOUT_MS: "150" }));
+      server.onExec = () => {
+        // Hang forever; the timeout is the subject under test.
+      };
+
+      await expect(sshRun(cfg.ssh, "echo hi")).rejects.toThrow(/timed out/i);
+
+      const sent = spy.mock.calls.map(([, name]) => name);
+      expect(sent).toContain("KILL");
+      // The real packet writer ran without throwing — the request went out.
+      expect(spy.mock.results.every((r) => r.type === "return")).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("rejects when the channel closes with no exit status at all", async () => {
+    // A dropped connection tears the channel down without exit-status or
+    // exit-signal. That is an unknown outcome and must not be reported as a
+    // clean exit 0.
+    server.onExec = (command, stream) => {
+      stream.close();
+    };
+
+    await expect(sshRun(config.ssh, "echo hi")).rejects.toThrow(/exit status/i);
   });
 });
 

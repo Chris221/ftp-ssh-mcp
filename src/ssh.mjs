@@ -5,6 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { StringDecoder } from "node:string_decoder";
 
 import { buildRemoteCommand, formatFingerprint, normalizeFingerprint } from "./guards.mjs";
 
@@ -150,47 +151,97 @@ export async function sshRun(profile, command, { stdin = "", env = {} } = {}) {
           let stderr = "";
           let truncated = false;
           let code = null;
+          let signal = null;
 
-          const append = (target, chunk) => {
-            const remaining = profile.maxOutputBytes - (stdout.length + stderr.length);
+          // SSH_MAX_OUTPUT is a BYTE cap, so chunks are budgeted and sliced
+          // as buffers before decoding — String#length counts UTF-16 code
+          // units, which lets multi-byte output overrun the cap several-fold.
+          // Each stream gets its own StringDecoder because TCP chunking does
+          // not respect character boundaries: a chunk that ends mid-character
+          // must wait for its remaining bytes, not decode to U+FFFD.
+          let remaining = profile.maxOutputBytes;
+          const appendFrom = (decoder) => (target, chunk) => {
             if (remaining <= 0) {
               truncated = true;
               return target;
             }
-            const text = chunk.toString();
-            if (text.length > remaining) truncated = true;
-            return target + text.slice(0, remaining);
+            let bytes = chunk;
+            if (bytes.length > remaining) {
+              truncated = true;
+              bytes = bytes.subarray(0, remaining);
+            }
+            remaining -= bytes.length;
+            return target + decoder.write(bytes);
           };
+          const appendOut = appendFrom(new StringDecoder("utf8"));
+          const appendErr = appendFrom(new StringDecoder("utf8"));
 
           const timer = setTimeout(() => {
+            // Closing the channel only abandons the remote process; the
+            // signal request is what asks the server to actually end it.
+            // stream.signal() cannot be used here: stdin was ended right
+            // after exec (see the stream.end below), and its guard silently
+            // drops the request once the writable side is done — even though
+            // a signal after EOF is legal, the channel stays open until
+            // CLOSE. So send the same packet one layer down. Best-effort
+            // twice over: a server may ignore the signal, and if ssh2 ever
+            // reshapes these internals the catch degrades this to the
+            // close-only behavior rather than masking the timeout.
+            try {
+              stream._client._protocol.signal(stream.outgoing.id, "KILL");
+            } catch {
+              /* channel already unusable, or ssh2 internals changed */
+            }
             stream.close();
             reject(new Error(`Command timed out after ${profile.timeout}ms: ${command}`));
           }, profile.timeout);
 
           stream
-            .on("close", (exitCode) => {
+            .on("close", (closeCode, closeSignal) => {
               clearTimeout(timer);
-              resolve({ code: exitCode ?? code ?? 0, stdout, stderr, truncated });
+              const finalCode = closeCode ?? code;
+              const finalSignal = closeSignal ?? signal ?? null;
+              // Neither an exit-status nor an exit-signal arrived: the
+              // channel died (dropped connection, server teardown). That is
+              // an unknown outcome, not a clean exit 0.
+              if (finalCode == null && !finalSignal) {
+                return reject(
+                  new Error(`Connection closed before "${command}" reported an exit status.`)
+                );
+              }
+              resolve({ code: finalCode ?? null, signal: finalSignal, stdout, stderr, truncated });
             })
-            .on("exit", (exitCode) => {
-              code = exitCode;
+            .on("exit", (exitCode, exitSignal) => {
+              // Signal termination arrives as (null, "SIGKILL", ...): the
+              // remote process has no exit code, and defaulting it to 0 would
+              // report a killed command as a success.
+              code = exitCode ?? null;
+              signal = exitSignal ?? null;
+            })
+            .on("error", (streamErr) => {
+              clearTimeout(timer);
+              reject(streamErr);
             })
             .on("data", (chunk) => {
-              stdout = append(stdout, chunk);
+              stdout = appendOut(stdout, chunk);
             })
             .stderr.on("data", (chunk) => {
-              stderr = append(stderr, chunk);
+              stderr = appendErr(stderr, chunk);
             });
 
-          if (stdin) stream.end(stdin);
+          // Always end, even with no stdin: `cat`, `tail` and `mysql` (all in
+          // the default allowlist) read stdin to EOF when given no file
+          // argument, and an open stream leaves them blocked until the
+          // timeout above fires.
+          stream.end(stdin);
         });
       })
   );
 }
 
 /** Render a command result for a tool response. */
-export function formatResult(command, { code, stdout, stderr, truncated }, maxOutputBytes) {
-  const parts = [`$ ${command}`, `exit ${code}`];
+export function formatResult(command, { code, signal, stdout, stderr, truncated }, maxOutputBytes) {
+  const parts = [`$ ${command}`, signal ? `killed by ${signal}` : `exit ${code}`];
   if (stdout.trim()) parts.push(`--- stdout ---\n${stdout.trimEnd()}`);
   if (stderr.trim()) parts.push(`--- stderr ---\n${stderr.trimEnd()}`);
   if (truncated) parts.push(`(output truncated at ${maxOutputBytes} bytes)`);
