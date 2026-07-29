@@ -349,6 +349,18 @@ export function configWarnings(config, { quiet = false } = {}) {
     }
   }
 
+  // DB_USER is the mysql capability's deliberate opt-in (it does not inherit
+  // REMOTE_USER, precisely so the capability cannot switch itself on), but
+  // the capability reaches the database over SSH — and without an SSH profile
+  // it registers nothing, silently. Same shape as the exec case below.
+  if (config.db && config.db.user && config.db.name && !config.ssh) {
+    warn(
+      "DB_USER and DB_NAME are set, but mysql_query was not registered: the mysql " +
+        "capability reaches the database over SSH, so it also requires an SSH profile. " +
+        "Set SSH_HOST (or REMOTE_HOST) and its credentials."
+    );
+  }
+
   // SSH_ALLOW_EXEC=true is a deliberate opt-in, but the ssh capability also
   // needs a base directory (see isConfigured in capabilities/ssh.mjs), and
   // without one it registers nothing. The MCP_CAPABILITIES check below only

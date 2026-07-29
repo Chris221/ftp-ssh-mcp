@@ -659,9 +659,9 @@ describe("configWarnings", () => {
       expect(quiet(cfg)).toStrictEqual([]);
     });
 
-    it("drops the DB_PASSWORD warning", () => {
+    it("drops the DB_PASSWORD and mysql-needs-ssh warnings", () => {
       const cfg = resolveConfig({ ...ftpOnly, FTP_BASE_DIR: "/site", DB_USER: "d", DB_NAME: "n" });
-      expect(configWarnings(cfg)).toHaveLength(1);
+      expect(configWarnings(cfg)).toHaveLength(2);
       expect(quiet(cfg)).toStrictEqual([]);
     });
 
@@ -738,6 +738,39 @@ describe("configWarnings", () => {
     });
   });
 
+  // DB_USER and DB_NAME are the mysql capability's deliberate opt-in, but the
+  // capability reaches the database over SSH — and without an SSH profile it
+  // silently registered nothing, same silence as the exec case below.
+  describe("mysql opted in but not registered", () => {
+    const mysqlWarning =
+      "DB_USER and DB_NAME are set, but mysql_query was not registered: the mysql " +
+      "capability reaches the database over SSH, so it also requires an SSH profile. " +
+      "Set SSH_HOST (or REMOTE_HOST) and its credentials.";
+
+    it("warns when the db profile is configured without an SSH profile", () => {
+      const cfg = resolveConfig({ ...quietFtp, DB_USER: "d", DB_NAME: "n", DB_PASSWORD: "p" });
+      expect(configWarnings(cfg)).toStrictEqual([mysqlWarning]);
+    });
+
+    it("does not warn when an SSH profile is present", () => {
+      const cfg = resolveConfig({ ...quietSsh, DB_USER: "d", DB_NAME: "n", DB_PASSWORD: "p" });
+      expect(configWarnings(cfg)).toStrictEqual([]);
+    });
+
+    it("does not warn when only DB_NAME is set — that never opts in", () => {
+      // Half a db config is not a request for the capability: DB_USER is the
+      // deliberate switch (it does not inherit REMOTE_USER), so nothing was
+      // asked for and nothing is missing.
+      const cfg = resolveConfig({ ...quietFtp, DB_NAME: "n" });
+      expect(configWarnings(cfg)).toStrictEqual([]);
+    });
+
+    it("is informational: quiet drops it", () => {
+      const cfg = resolveConfig({ ...quietFtp, DB_USER: "d", DB_NAME: "n", DB_PASSWORD: "p" });
+      expect(configWarnings(cfg, { quiet: true })).toStrictEqual([]);
+    });
+  });
+
   // SSH_ALLOW_EXEC=true is a deliberate opt-in, but the ssh capability also
   // requires a base directory — and without one it silently registered no
   // tools. Unlike the MCP_CAPABILITIES case above, nothing mentioned why the
@@ -780,7 +813,9 @@ describe("configWarnings", () => {
   });
 
   it("warns when DB_USER is set but no password resolves", () => {
-    const cfg = resolveConfig({ DB_USER: "dbuser", DB_NAME: "site_db" });
+    // An SSH profile keeps the mysql-needs-ssh warning out of the way, so
+    // this asserts the password warning in isolation.
+    const cfg = resolveConfig({ ...quietSsh, DB_USER: "dbuser", DB_NAME: "site_db" });
     const warnings = configWarnings(cfg);
     expect(warnings).toStrictEqual([
       'DB_PASSWORD is not set. The mysql client will rely on host-side credentials ' +
@@ -789,8 +824,8 @@ describe("configWarnings", () => {
     ]);
   });
 
-  it("does not warn when a password is set", () => {
-    const cfg = resolveConfig({ DB_USER: "dbuser", DB_PASSWORD: "own", DB_NAME: "site_db" });
+  it("does not warn about the password when one is set", () => {
+    const cfg = resolveConfig({ ...quietSsh, DB_USER: "dbuser", DB_PASSWORD: "own", DB_NAME: "site_db" });
     expect(configWarnings(cfg)).toStrictEqual([]);
   });
 
