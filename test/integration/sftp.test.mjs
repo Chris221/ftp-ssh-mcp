@@ -8,6 +8,7 @@ import { resolveConfig } from "../../src/config.mjs";
 import { withClient } from "../../src/transports/index.mjs";
 import { freePort } from "../fixtures/free-port.mjs";
 import { startSftpServer } from "../fixtures/sftp-server.mjs";
+import { buildTools } from "../fixtures/tool-runner.mjs";
 
 let server;
 let remoteRoot;
@@ -32,6 +33,11 @@ afterEach(async () => {
   rmSync(remoteRoot, { recursive: true, force: true });
   rmSync(localRoot, { recursive: true, force: true });
 });
+
+/** Build a tool runner wired to this test's live server via withClient. */
+function toolRunnerFor(cfg) {
+  return buildTools(cfg, { withClient: (fn, override) => withClient(cfg, fn, override) }).run;
+}
 
 describe("sftp transport", () => {
   it("uploads a file", async () => {
@@ -188,5 +194,24 @@ describe("tilde base dir", () => {
     const config = resolveConfig(envFor(tildeServer.port, "/home/tester/site"));
     const seen = await withClient(config, (_client, baseDir) => baseDir);
     expect(seen).toBe("/home/tester/site");
+  });
+
+  it("confines a tool call to the expanded base dir", async () => {
+    writeFileSync(path.join(remoteRoot, "home", "tester", "site", "a.txt"), "12345");
+    const run = toolRunnerFor(tildeConfig);
+
+    const result = await run("file_list", { remotePath: "." });
+
+    expect(result.error).toBeUndefined();
+    expect(result.content[0].text).toMatch(/^\/home\/tester\/site\n/);
+    expect(result.content[0].text).toContain("a.txt");
+  });
+
+  it("still rejects .. before opening a connection", async () => {
+    const run = toolRunnerFor(tildeConfig);
+
+    const result = await run("file_list", { remotePath: "../../etc" });
+
+    expect(result.error).toMatch(/'\.\.' segments/);
   });
 });

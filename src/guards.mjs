@@ -26,6 +26,18 @@ export function expandHome(filePath) {
 }
 
 /**
+ * Does `baseDir` refer to the login account's own home — a bare `~` or a
+ * `~/`-prefixed path?
+ *
+ * Shared by expandRemoteBase (below) and effectiveBaseDir (../transports/
+ * base-dir.mjs), which also uses it to decide whether the network round trip
+ * to look up the login directory is needed at all — so the two cannot drift.
+ */
+export function isHomeRelative(baseDir) {
+  return baseDir === "~" || baseDir.startsWith("~/");
+}
+
+/**
  * Expand a leading `~` in a REMOTE base directory.
  *
  * Unlike expandHome, which resolves against THIS machine's home, `home` here is
@@ -41,7 +53,7 @@ export function expandHome(filePath) {
  */
 export function expandRemoteBase(baseDir, home) {
   const base = String(baseDir ?? "");
-  if (base !== "~" && !base.startsWith("~/")) return base;
+  if (!isHomeRelative(base)) return base;
 
   const login = String(home ?? "");
   if (!login.startsWith("/")) {

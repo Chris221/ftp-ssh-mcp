@@ -33,6 +33,11 @@ export default {
     // network round trip. The fence check — the part that needs the base — has
     // to wait, because a "~" base is only expanded once the server has reported
     // the account's login directory.
+    //
+    // Running this before withClient also means a call with both a ".." path
+    // and an unconfigured override transport now reports the ".." error rather
+    // than the missing-profile error it used to. That is deliberate: a
+    // traversal attempt should not be masked by a config error.
     const precheck = (input) => resolveRemotePath(input, "");
 
     const assertWritable = () => {

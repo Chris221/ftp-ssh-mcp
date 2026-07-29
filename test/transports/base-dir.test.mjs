@@ -11,6 +11,14 @@ describe("effectiveBaseDir", () => {
     expect(seen).toBe("/home/tester/site");
   });
 
+  it("returns an empty base dir unchanged without calling lookup, so 'no confinement' stays no confinement", async () => {
+    const lookup = () => {
+      throw new Error("should not be called");
+    };
+    const seen = await effectiveBaseDir("", "SSH_BASE_DIR", lookup);
+    expect(seen).toBe("");
+  });
+
   it("expands a tilde base dir using the looked-up login directory", async () => {
     const lookup = async () => "/home/tester";
     const seen = await effectiveBaseDir("~/site", "SSH_BASE_DIR", lookup);
