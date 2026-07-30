@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -54,9 +55,10 @@ describe("selftestSummary", () => {
   });
 
   it("never includes a password", () => {
-    const config = resolveConfig({ ...ftpOnly, FTP_PASSWORD: "hunter2" });
+    const password = `pw-${randomUUID()}`;
+    const config = resolveConfig({ ...ftpOnly, FTP_PASSWORD: password });
     const { toolNames } = createServer(config);
-    expect(selftestSummary(config, toolNames, null)).not.toContain("hunter2");
+    expect(selftestSummary(config, toolNames, null)).not.toContain(password);
   });
 });
 

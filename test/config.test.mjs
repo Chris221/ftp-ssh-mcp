@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { configWarnings, resolveConfig, validateConfig } from "../src/config.mjs";
 
@@ -382,14 +383,16 @@ describe("secret-inheritance rule", () => {
   });
 
   it("inherits the shared key and passphrase when the ssh profile sets no user", () => {
+    const keyPath = `id_rsa_${randomUUID()}`;
+    const passphrase = `pp-${randomUUID()}`;
     const cfg = resolveConfig({
       REMOTE_HOST: "h",
       REMOTE_USER: "shared",
-      REMOTE_PRIVATE_KEY: "id_rsa_shared",
-      REMOTE_PASSPHRASE: "sharedphrase",
+      REMOTE_PRIVATE_KEY: keyPath,
+      REMOTE_PASSPHRASE: passphrase,
     });
-    expect(cfg.ssh.privateKeyPath).toBe("id_rsa_shared");
-    expect(cfg.ssh.passphrase).toBe("sharedphrase");
+    expect(cfg.ssh.privateKeyPath).toBe(keyPath);
+    expect(cfg.ssh.passphrase).toBe(passphrase);
   });
 
   it("still inherits non-secrets when the profile sets its own user", () => {
@@ -488,13 +491,14 @@ describe("db profile", () => {
   });
 
   it("uses the profile's own password when it sets both user and password", () => {
+    const dbPassword = `dbp-${randomUUID()}`;
     const cfg = resolveConfig({
       REMOTE_USER: "shared",
       REMOTE_PASSWORD: "sekrit",
       DB_USER: "dbuser",
-      DB_PASSWORD: "owndbpass",
+      DB_PASSWORD: dbPassword,
     });
-    expect(cfg.db.password).toBe("owndbpass");
+    expect(cfg.db.password).toBe(dbPassword);
   });
 
   it("is null when neither DB_USER nor DB_NAME is set", () => {

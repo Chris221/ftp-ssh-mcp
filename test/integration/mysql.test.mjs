@@ -13,6 +13,7 @@
 // surface, so a regression that puts the secret back in argv fails here.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,7 +25,7 @@ import { buildTools } from "../fixtures/tool-runner.mjs";
 let server;
 let remoteRoot;
 
-const PASSWORD = "s3cr3t-dbp";
+const PASSWORD = `dbp-${randomUUID()}`;
 
 const baseEnv = (port, overrides = {}) => ({
   SSH_HOST: "127.0.0.1",
@@ -118,7 +119,7 @@ describe("mysql_query credential delivery", () => {
   });
 
   it("refuses a DB_PASSWORD containing a line break rather than corrupting the stdin framing", async () => {
-    const config = resolveConfig(baseEnv(server.port, { DB_PASSWORD: "bro\nken" }));
+    const config = resolveConfig(baseEnv(server.port, { DB_PASSWORD: `bro\nken-${randomUUID()}` }));
     const { run } = buildTools(config);
     const result = await run("mysql_query", { sql: "SELECT 1;" });
 
