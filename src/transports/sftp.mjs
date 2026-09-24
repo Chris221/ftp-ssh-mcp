@@ -1,5 +1,7 @@
 // ssh2-sftp-client adapter. Normalized to the shape in ./index.mjs.
+import { createWriteStream } from "node:fs";
 import path from "node:path";
+import { finished } from "node:stream/promises";
 
 import { attachKeyboardInteractive, buildAuthOptions } from "../ssh.mjs";
 import { effectiveBaseDir } from "./base-dir.mjs";
@@ -23,7 +25,18 @@ export function sftpAdapter(sftp) {
       await sftp.uploadDir(local, remote);
     },
     async download(remote, local) {
-      await sftp.get(remote, local);
+      // get() resolves on the REMOTE read stream's `end`, before a local write
+      // stream it opened itself has flushed — so given a path, it can report
+      // success while the file is still empty on disk (seen as a flaky test on
+      // Node 20). Hand it our own stream and wait for that to finish instead.
+      const out = createWriteStream(local);
+      try {
+        await sftp.get(remote, out);
+        await finished(out);
+      } catch (err) {
+        out.destroy();
+        throw err;
+      }
     },
     async mkdir(remote) {
       await sftp.mkdir(remote, true);

@@ -12,8 +12,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           # 24, not 22: OIDC trusted publishing (`npm publish --provenance`
           # with no NODE_AUTH_TOKEN) requires npm >= 11.5.1, and setup-node's
@@ -21,7 +21,10 @@ jobs:
           # with ENEEDAUTH. ci.yml's matrix is unaffected and still covers 20.
           node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: npm
+          # No dependency cache here. The cache is shared with PR runs, and a
+          # job holding an OIDC publish token should install from the lockfile
+          # alone rather than restore anything another workflow could have saved.
+          package-manager-cache: false
       - name: Check tag version matches package.json version
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
