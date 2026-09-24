@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Keeps the `uses:` pins in .github/workflows current. npm is left to
+  # Dependabot security updates, which are already enabled for this repo.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
